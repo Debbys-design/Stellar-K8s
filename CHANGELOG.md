@@ -3,6 +3,393 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+## Chart v3.1.0 (2026-09-28) [minor]
+
+• Merge branch 'main' into main
+📝 chore(helm): bump chart to v2.10.0 [skip ci]
+• Merge pull request #1596 from NanaKhadija1980j/fix/1517-versioned-policy-as-code-promotion-pipeline-from-dev-to-prod
+• [1517] [EPIC] Versioned Policy-as-Code Promotion Pipeline from Dev to Prod
+📝 chore(helm): bump chart to v2.9.0 [skip ci]
+• Merge pull request #1594 from NanaKhadija1980j/fix/1519-progressive-config-rollout-with-canary-evaluation-for-operator-settings
+• [1519] [EPIC] Progressive Config Rollout with Canary Evaluation for Operator Settings
+• Merge pull request #1593 from NanaKhadija1980j/fix/1520-automated-dependency-upgrade-validation-with-contract-tests
+• [1520] [EPIC] Automated Dependency Upgrade Validation with Contract Tests
+✨ feat(policy): versioned policy-as-code promotion pipeline (#1517)
+• Policy changes were applied by editing YAML per environment by hand, so dev,
+• staging and prod drifted and bad rules surfaced only in production. Model
+• promotion as an artifact promotion flow instead.
+• - Immutable, versioned bundles: PolicyBundle is content addressed over its
+•   version and rules; is_intact() detects mutation and promote() refuses a
+•   bundle edited after creation, so what staging validated is what prod gets.
+• - Dry-run impact analysis: analyze_impact() evaluates a bundle against a
+•   PolicyInventory per environment. It is pure and side-effect free, so CI can
+•   run it on every change. An overbroad rule is blocked before enforcement.
+• - Staged enforcement: every environment starts at Audit and advances exactly
+•   one step per call (audit -> warn -> enforce), tracked per environment.
+• - One-command rollback: rollback() restores the previous bundle in all
+•   environments, resets enforcement to Audit, and reports the duration
+•   against ROLLBACK_SLA_MS (60s).
+• Promotion follows the dev -> staging -> production order and refuses to skip
+• a link in the chain.
+✨ feat(config): progressive config rollout with canary evaluation (#1519)
+• Operator configuration used to be applied to every StellarNode at once, so a
+• single bad setting took the whole fleet down. This reuses progressive-delivery
+• machinery for configuration:
+• - Canary first: select_canary() picks a deterministic subset whose size never
+•   exceeds MAX_BLAST_RADIUS (5%) of the target set, spread across namespaces by
+•   an even stride over the sorted target list.
+• - Gates during the canary window: HealthGate/HealthSample evaluate the
+•   canary. Passed promotes to Propagating, Failed or Incomplete never does.
+• - Automatic rollback: gate_or_rollback() restores the previous bundle on gate
+•   failure and records the measured duration against ROLLBACK_SLA_MS (30s).
+• - Queryable versions: every target records the ConfigBundle version and digest
+•   it is running, so 'which config is this node on?' is always answerable.
+• - Stage machine (Idle -> Canary -> Propagating -> Complete, plus RolledBack)
+•   guarantees no config change propagates without a gate pass.
+• Merge origin/main into fix/1520-automated-dependency-upgrade-validation-with-contract-tests
+🐛 fix(license): repair license headers with an import spliced into them
+• Ten source files had use std::collections::BTreeMap; inserted as line 2,
+• inside the Apache-2.0 header block and before the module's inner doc
+• comment, which makes the inner doc comment a syntax error (E0753) and the
+• whole crate fail to build. Move the import into the import block.
+✨ feat(deps): automated dependency upgrade validation with generated contract tests (#1520)
+• Replaces manual dependency upgrade reviews with a mechanical merge gate:
+• - Contract test generation from existing consumer call sites, so the suite
+•   tracks real usage without dedicated authoring effort.
+• - Compatibility matrix auto-constructed from the generated suite.
+• - Incompatible upgrades are blocked with consumer attribution (consumer name
+•   plus the file:line call sites responsible).
+• - Approved upgrades carry a signed validation artifact (suite digest,
+•   matrix digest, SHA-256 signature).
+📝 chore(helm): bump chart to v2.8.0 [skip ci]
+• Merge pull request #1592 from Otaiki1/prmaster/1567-1568-1566-1569-4-issues-1567-1568-1566-1569-85543a
+• 4 issues: #1567, #1568, #1566, #1569
+• Merge pull request #1591 from ReinaMaze/feature/observability-infrastructure-epics
+✨ feat: add observability and infrastructure platform epic specs
+• Merge pull request #1590 from iheomadev/webhook-ledger-close-delivery
+✨ feat(webhook): implement LedgerCloseWebhook CRD and dispatcher (#1577)
+• Merge branch 'main' into webhook-ledger-close-delivery
+• Merge pull request #1589 from mathstickz/feat/Remediation
+• feat :Policy Drift Remediation Loop for Security Baseline Violations
+• Merge pull request #1588 from meetdarc-tech/feature/1574-ledger-migration-1575-asset-monitoring
+✨ feat: add ledger migration and SAC monitoring
+• Merge pull request #1587 from CollinsC1O/modes
+✨ feat: implement Graceful Degradation Modes for Partial Control-Plane Outage
+• Merge branch 'main' into modes
+• Merge pull request #1585 from CollinsC1O/Forecasting
+✨ feat: implement Capacity Forecasting Engine with Quarterly Scaling Re…
+• Merge pull request #1584 from itsnotOJ/fix/1502-epic-real-time-schema-registry-for-all-internal-service-apis
+• [#1502] [EPIC] Real-Time Schema Registry for All Internal Service APIs
+• Merge branch 'main' into fix/1502-epic-real-time-schema-registry-for-all-internal-service-apis
+• Merge pull request #1550 from itsnotOJ/fix/1501-epic-declarative-webhook-certificate-management-with-zero-trust-renewal
+• [#1501] [EPIC] Declarative Webhook Certificate Management with Zero-Trust Renewal
+• Merge pull request #1549 from olalois/feat/interservice-mtls-ci-benchmarks
+• Add inter-service mTLS and harden validation benchmarks
+• Work on #1567: [EPIC] SDF Testnet Compliance Validation
+• Closes #1567
+📝 chore(helm): bump chart to v2.7.0 [skip ci]
+• Merge pull request #1586 from emperorsixpacks/main
+✨ feat: compliance reporting, validator scoring, partition response, an…
+✨ feat: add observability and infrastructure platform epic specs
+• - Epic 1: Alert Correlation & Incident Management
+•   - Deduplicate and correlate alerts from multiple sources
+•   - Root cause analysis with symptom suppression
+•   - Unified incident timelines with auto-lifecycle management
+•   - Target: 60% alert reduction, 40% faster time-to-incident
+• - Epic 2: Distributed Tracing for Async Message Queues
+•   - W3C trace context propagation through Kafka, NATS, webhooks
+•   - Zero-config SDK shims preserving existing APIs
+•   - Broken chain detection and metrics
+•   - Target: 95% trace stitch rate, <200 byte overhead
+• - Epic 3: Declarative Backup Plans with PITR
+•   - BackupPlan CRs with RPO-based scheduling
+•   - Point-in-time recovery for PostgreSQL, MySQL, MongoDB
+•   - Mandatory restore verification before completion
+•   - Cross-region replication with checksum validation
+•   - Target: 100% verification pass rate, RPO achievement for 30 days
+• - Epic 4: GitOps Drift Detection & Auto-Revert
+•   - Three-way diff (base/live/git) with server-side-default filtering
+•   - Classify drift: manual mutations vs. pending propagation
+•   - Auto-revert with rollback safety checks
+•   - Actor attribution from audit logs
+•   - Target: 60s detection, zero false positives, 95% attribution
+• All specs include detailed requirements, technical design, CRDs,
+• metrics, and acceptance criteria.
+✨ feat(webhook): implement LedgerCloseWebhook CRD and dispatcher (#1577)
+• Add at-least-once webhook delivery for Stellar ledger-close events.
+• Changes:
+• - src/crd/ledger_close_webhook.rs: LedgerCloseWebhook CRD with typed spec,
+•   status subresource, delivery log ring-buffer (20 entries), and
+•   LedgerClosePayload struct for the JSON body.
+• - src/controller/ledger_close_dispatcher.rs: Dispatcher with per-subscription
+•   ordered delivery workers, exponential back-off retry (1s→2s→4s→8s→16s,
+•   max 5 retries), HMAC-SHA256 payload signing (X-Stellar-Signature header),
+•   and Kubernetes status patching after each delivery attempt.
+• - config/crd/ledgerclosehook-crd.yaml: OpenAPI v3 schema for the CRD.
+• - config/samples/ledger-close-webhook-example.yaml: Ready-to-use sample.
+• - src/crd/mod.rs, src/controller/mod.rs: Register new modules and re-exports.
+• Acceptance criteria met:
+• - Webhook delivered within 5 s of ledger close (poll loop + immediate dispatch)
+• - Retry with exponential backoff on failure (max 5 attempts)
+• - Delivery order preserved per subscription (per-hook channel worker)
+• - HMAC signature verifiable by consumer (X-Stellar-Signature: sha256=<hex>)
+• Closes #1577
+• feat :Policy Drift Remediation Loop for Security Baseline Violations
+✨ feat: add ledger migration and asset monitoring
+✨ feat: implement Graceful Degradation Modes for Partial Control-Plane Outage
+✨ feat: compliance reporting, validator scoring, partition response, and multisig coordination
+• Implements comprehensive solutions for 4 major operator capabilities:
+• 1. Compliance Reporting for Regulated Validators (#1581)
+• - Added ComplianceReport Custom Resource Definition (compliance.stellar.org/v1alpha1)
+•   supporting automated periodic audits on configurable daily/weekly/cron schedules.
+• - Implemented RegulatoryReportGenerator in src/compliance/regulatory_report.rs to collect
+•   operational metrics, uptime evidence against regulatory SLAs, key custody attestation
+•   (HSM/KMS hardware backing and policy verification), and SCP ledger close metrics.
+• - Built export engines for signed canonical JSON envelopes and auditor-ready PDF reports
+•   using printpdf with digital attestation stamps and SHA-256 checksums.
+• - Created ComplianceReportController to manage scheduled evidence collection and persist
+•   artifacts as Kubernetes ConfigMaps or object storage references.
+• - Closes #1581
+• 2. Validator Performance Scoring and Leaderboard (#1579)
+• - Added ValidatorScore and ValidatorLeaderboard CRDs (stellar.org/v1alpha1) for automated
+•   hourly validator performance grading and multi-cluster federation aggregation.
+• - Implemented ValidatorScoringEngine in src/controller/validator_scoring.rs computing:
+•   * Uptime availability scores from /info polling (>99% = A, 95-99% = B, 90-95% = C, <90% = F)
+•   * Consensus participation rate from SCP nomination and ballot close metrics
+•   * History archive checkpoint continuity and completeness scores
+•   * Weighted composite performance score and letter grade (A+, A, B, C, D, F)
+•   * Rolling 24-hour evaluation history
+• - Added `kubectl stellar leaderboard` CLI command in kubectl_plugin.rs displaying
+•   ranked validator performance tables.
+• - Exposed GET /api/v1/validators/leaderboard in operator REST API.
+• - Closes #1579
+• 3. Incident Response Automation for Network Partitions (#1580)
+• - Added Incident Custom Resource Definition (incident.stellar.org/v1alpha1) for declarative
+•   network and consensus incident lifecycle management.
+• - Implemented PartitionIncidentDetector in src/incident/partition_detector.rs:
+•   * Detects network partitions within 3 consecutive missed ledger closes (~15 seconds)
+•   * Auto-dispatches emergency alerts to Slack, Webhook, and PagerDuty within 30s SLA
+•   * Automatically populates Incident CR status with chronological diagnostic timelines
+•   * Analyzes quorum health and computes safety-verified quorum adjustment recommendations
+•     (adjusted validator sets and new Byzantine fault-tolerant thresholds).
+• - Closes #1580
+• 4. Multi-Signature Coordination for Administrative Operations (#1578)
+• - Added MultiSigOperation Custom Resource Definition (stellar.org/v1alpha1) coordinating
+•   M-of-N signature collection for administrative operations (settings upgrades, signer changes).
+• - Implemented MultiSigController in src/controller/multisig_controller.rs:
+•   * Gathers cryptographic signatures by querying signer sidecars or secret stores
+•   * Enforces timeout deadlines and marks operations expired if threshold is unreached
+•   * Exposes real-time partial signature progress (collected signatures, missing signers)
+•   * Maintains an append-only audit trail recording actors, public keys, and timestamps
+•   * Automatically submits assembled transactions to the Stellar network upon reaching quorum.
+• - Closes #1578
+✨ feat: implement Capacity Forecasting Engine with Quarterly Scaling Recommendations
+✨ feat(schema): consumer-aware versioned schema registry with a PR compatibility gate
+• - central registry snapshot covering every internal API subject, committed as
+•   schemas/registry.json and enforced at build time by build.rs
+• - deeper compatibility engine: nested objects, type changes, enum removals and
+•   a dependency-free protobuf declaration check, across backward/forward/full
+• - atomic registration that checks the subject policy, every pinned consumer and
+•   an audited one-shot override before mutating state
+• - explicit registry override required for any breaking change
+• - generated clients are pinned to exact schema versions; floating refs rejected
+• - consumer impact report attached to every registered version
+• - new schema-compat CLI subcommand gates a proposed schema against all
+•   consumers and emits the impact report
+• - new InternalApiSchema CRD repeats the pin and enforcement policy at deploy
+•   time, plus sample manifest, CRD YAML and design doc
+✨ feat(webhook): declarative cert-manager TLS lifecycle with fail-closed cert health
+• - render a bootstrap Issuer, a CA Certificate, a CA-backed Issuer and a
+•   continuously renewed serving Certificate for the admission webhook
+• - distribute the CA to every apiserver via cert-manager cainjector and
+•   pin failurePolicy: Fail so TLS/trust errors never bypass admission
+• - serve TLS with rustls through axum-server, reloading the mounted Secret
+•   on rotation after draining in-flight connections
+• - validate the serving identity before binding and fail closed otherwise
+• - add a stellar-cert-health sidecar that pre-validates chain, validity, SAN
+•   and EKU offline, gates readiness, and exports expiry-horizon metrics
+• - alert at 25% and 10% of certificate lifetime remaining
+• - reject --cert-path without --key-path at startup
+✨ feat(security): add mesh mTLS and benchmark gates
+• Signed-off-by: olalois <142523986+olalois@users.noreply.github.com>
+
+
+## Chart v3.0.0 (2026-09-28) [major]
+
+## Chart v2.12.0 (2026-09-28) [minor]
+
+• Merge pull request #1598 from ibrahimbabatundeibrahim8-alt/main
+✨ feat(core): implement history archive compat, soroban rpc limits, cap…
+• Merge branch 'main' into main
+✨ feat(core): implement history archive compat, soroban rpc limits, captive core tuning, horizon failover
+• Implement solutions for four core operator capabilities across history archive version
+• validation, Soroban RPC limits and caching, captive core container tuning, and Horizon
+• ingestion leader failover.
+• Issue #1562 - History Archive Version Compatibility Checks
+• - Problem: stellar-core 21.3.1 fails with "Unexpected history archive state version: 2" on SDF
+•   archives generated by newer core binaries. Catch-up fails abruptly without pre-checks.
+• - What was done:
+•   * Implemented version compatibility validation in `src/controller/archive_health.rs` to detect
+•     archive state version from `.well-known/stellar-history.json` before catch-up.
+•   * Added compatibility matrix (`supported_archive_versions`): stellar-core < 22 supports archive
+•     state version 1; core >= 22 supports versions 1 and 2.
+•   * Added sidecar health check gating in `src/controller/health_check_sidecar.rs` and
+•     `src/bin/stellar-health-sidecar.rs` with `/archive-compatibility` endpoint and 503 response on
+•     `/readyz` when archive state version exceeds supported version.
+•   * Updated `src/controller/reconciler.rs` to evaluate archive compatibility during reconciliation
+•     and update status conditions (`ArchiveVersionCompatible`) with remediation recommendations.
+• - How it was done:
+•   * Parsed `.well-known/stellar-history.json` metadata (`version` and `server` fields).
+•   * Compared archive version against core semver; surfaced clear errors including archive URL,
+•     detected state version, supported versions, and recommended core upgrade.
+• - Closes #1562
+• Issue #1565 - Soroban RPC Caching and Pagination Limits
+• - Problem: Soroban RPC `getEvents` and `getLedgerEntries` lacked pagination limits and caching,
+•   risking OOM errors under heavy event stream querying or repeated ledger requests.
+• - What was done:
+•   * Added `maxPageSize` and `cacheSizeMB` configuration fields to `SorobanConfig` in
+•     `src/crd/types.rs` with default values (100 items, 128 MB).
+•   * Created `src/controller/soroban_rpc.rs` with cursor-based pagination and LRU cache.
+•   * Implemented structured `EventCursor` (`{ledger:010}:{tx_index:06}:{event_index:04}`) for
+•     efficient, deterministic cursor pagination.
+•   * Implemented memory-bounded `LedgerEntryLruCache` tracking memory consumption in bytes against
+•     the configured MB ceiling, along with hit/miss counters and hit ratio metrics.
+•   * Injected `SOROBAN_RPC_MAX_PAGE_SIZE` and `SOROBAN_RPC_CACHE_SIZE_MB` env vars in
+•     `src/controller/resources.rs`.
+• - How it was done:
+•   * Truncated responses exceeding `max_page_size` and computed `nextCursor` for event streams.
+•   * Implemented entry byte size estimation for ledger keys and values to enforce memory bounding,
+•     evicting oldest items when capacity is reached.
+• - Closes #1565
+• Issue #1563 - Captive Core Configuration Management
+• - Problem: Horizon and Soroban RPC captive core configuration lacked explicit container-safe
+•   paths (`DATABASE`, `BUCKET_DIR_PATH`, `TMP_DIR_PATH`) and worker thread CPU tuning.
+• - What was done:
+•   * Extended `CaptiveCoreConfig` in `src/crd/types.rs` with `database`, `bucket_dir_path`,
+•     `tmp_dir_path`, and `worker_threads` fields.
+•   * Enhanced `CaptiveCoreConfigBuilder` in `src/controller/captive_core.rs` with container
+•     defaults (`/var/lib/stellar/buckets`, `/var/lib/stellar/tmp`, and `sqlite3://captivecore.db`).
+•   * Implemented `derive_worker_threads_from_cpu` to scale worker threads based on allocated
+•     container CPU cores (e.g. 500m -> 1, 2000m -> 2, 4 -> 4 threads).
+•   * Injected captive core configuration hash annotation (`stellar.org/captive-core-config-hash`)
+•     into Pod templates in `src/controller/resources.rs` to trigger graceful hot-reloads on spec
+•     changes.
+• - How it was done:
+•   * Formatted captive-core TOML with explicit container paths and thread parameters.
+•   * Derived thread count from pod resource limits/requests and wired into ConfigMap generation.
+• - Closes #1563
+• Issue #1564 - Horizon Ingestion Failover for Validator Groups
+• - Problem: Running multiple Horizon replicas without ingestion leader election risked duplicate
+•   ledger ingestion and database write conflicts.
+• - What was done:
+•   * Created `src/controller/horizon_failover.rs` implementing Kubernetes Lease-based leader
+•     election for Horizon ingestion pods.
+•   * Added `enable_ingestion_leader_election` and `ingestion_lease_duration_seconds` to
+•     `HorizonConfig` in `src/crd/types.rs`.
+•   * Designed ingestion role transition (`HorizonIngestionRole::Leader` vs `Standby`): leader runs
+•     captive core ingestion while standby replicas operate in API-only mode without ingestion.
+•   * Configured standby health checks to return HTTP 200 without ingestion error alerts.
+•   * Injected leader election coordination environment variables in `src/controller/resources.rs`.
+• - How it was done:
+•   * Modeled lease renewal, acquisition, and heartbeat tracking with failover triggering in under
+•     30 seconds upon leader lease expiration.
+• - Closes #1564
+• Closes #1562, #1565, #1563, #1564
+
+
+## Chart v2.11.0 (2026-09-28) [minor]
+
+• Merge pull request #1597 from susanyusuf/fix/1560-1561-config-scoping-and-peer-connectivity
+• fix(config)+feat(peer): keep operator cfg keys at document root (#1560) and surface validator peer reachability (#1561)
+• Merge pull request #1595 from NanaKhadija1980j/fix/1518-deterministic-build-reproducibility-verification-for-all-artifacts
+• [1518] [EPIC] Deterministic Build Reproducibility Verification for All Artifacts
+• Merge branch 'main' into fix/1518-deterministic-build-reproducibility-verification-for-all-artifacts
+✨ feat(peer): surface validator peer reachability as a status condition
+• A validator that cannot reach its peers produces no signal at all:
+• stellar-core logs a failed overlay connection, the pod stays Ready, and the
+• node is quietly absent from quorum. Blocked ports, wrong ports, DNS failures
+• and a stale KNOWN_PEERS list all look identical from the outside, which is
+• what makes them expensive to diagnose.
+• Add controller::peer_connectivity, which TCP-dials each configured peer and
+• reports the address, port, outcome and last attempt time per peer. Probes
+• run at most MAX_CONCURRENT_PROBES at a time with a bounded timeout, so one
+• blocked host cannot delay the rest, and results are returned in
+• configuration order so the condition message is stable across rounds. The
+• default 30s interval keeps two rounds inside the 60s detection budget the
+• issue asks for.
+• Wire it in on both sides the issue calls for:
+• - Reconciler: update_status now folds the result into a PeerConnectivity
+•   condition, using the existing conditions::set_condition so
+•   last_transition_time is only bumped on a real transition. The condition is
+•   removed rather than left stale for non-validators, suspended nodes and
+•   validators with no peers.
+• - Health sidecar: reads KNOWN_PEERS, runs its own probe loop and exposes
+•   /peers. Readiness now fails when every configured peer is unreachable,
+•   because a synced validator with no reachable peer cannot complete SCP.
+•   Absence of probe data is not treated as failure, so sidecars that have not
+•   completed a round, and nodes with no peers, are unaffected.
+• Both derive their peer list from known_peers_for_node, and the operator
+• renders that same list into the sidecar's KNOWN_PEERS env var, so the
+• pod-local probe and the status condition cannot disagree about which peers
+• are in play.
+• remediation_hint names the port, the protocol and the likely cause: a
+• security-group or NetworkPolicy rule blocking the overlay port, a peer
+• listed on 11626 (the HTTP/admin port) instead of 11625, or a stale entry to
+• refresh. Automatic remediation is deliberately not implemented - silently
+• rewriting a user's peer list or port is a worse failure than a clear
+• diagnostic, and the hint already states the exact change required.
+• Closes #1561
+🐛 fix(config): keep operator-managed stellar-core.cfg keys at the document root
+• In TOML every key written after a table header belongs to that table. The
+• operator appended CATCHUP_COMPLETE, CATCHUP_RECENT, HTTP_PORT_SECURE,
+• TLS_CERT_FILE and TLS_KEY_FILE to the *end* of the user-supplied
+• validatorConfig, so as soon as a user set [QUORUM_SET], [[VALIDATORS]] or
+• [[HOME_DOMAINS]] every one of those keys was silently captured by the last
+• table. The file still parsed and stellar-core still started, but with mTLS
+• off, the wrong catch-up mode and no KNOWN_PEERS, and nothing reported the
+• loss.
+• Add controller::config_scope, which:
+• - renders the operator keys through OperatorHeader and emits them *before*
+•   user content, so they always land at the root;
+• - re-parses the assembled document and reports any operator key that ended
+•   up table-scoped (misplaced_operator_keys) plus any user key written after
+•   a table header that stellar-core would read at the root
+•   (orphaned_root_keys). Both are logged as warnings that name the node,
+•   the key and the table that captured it. Restricting the orphan check to
+•   keys stellar-core actually reads at the root keeps it actionable instead
+•   of flagging legitimate table members such as THRESHOLD_PERCENT or TOML;
+• - tolerates unparsable config by reporting it rather than failing a
+•   reconcile.
+• Cover the output with byte-exact golden files under
+• tests/fixtures/stellar_core_cfg covering full history, recent history with
+• mTLS, and an operator header with no user section, plus a structural
+• assertion that every operator key present in the generated document is
+• genuinely at the root.
+• Closes #1560
+🐛 fix(crd): remove duplicate service_ownership module and LedgerCloseWebhookSpec
+• The crate did not compile on main: src/crd/mod.rs declared
+• pub mod service_ownership; twice, and src/crd/ledger_close_webhook.rs
+• carried a second empty LedgerCloseWebhookSpec unit struct whose
+• CustomResource derive generated a resource type that shadowed the real
+• spec struct.
+• Move the CustomResource derive onto the actual LedgerCloseWebhookSpec• so the generated resource is built from the real schema, and drop the
+• duplicate module declaration. Both are required before any other change
+• can be validated by CI.
+✨ feat(build): deterministic build reproducibility verification (#1518)
+• Turns "rebuilds are reproducible" into a checkable property.
+• - Independent rebuild pipeline: Pipeline/assert_independent() rejects a
+•   verifier that reuses the release pipeline or builds a different revision.
+• - Bit-for-bit comparison by SHA-256 plus a byte-level first-difference
+•   offset, not by version or timestamp.
+• - Mismatch localization: every mismatch is attributed to the build step that
+•   emits the artifact, with the non-determinism sources detected in the
+•   rebuilt bytes and the determinism flags that step fails to pin.
+• - Per-release status and badge against REQUIRED_REPRODUCIBLE_RATE (95%).
+• Non-determinism detection covers timestamps, leaked build paths, locale,
+• VCS metadata, build ids, archive mtimes, mixed line endings and embedded
+• random seeds, so a mismatch is attributed to a concrete cause.
+
+
 ## Chart v2.10.1 (2026-09-28) [patch]
 
 • Merge pull request #1548 from itsnotOJ/fix/cleanup-935-936-934

@@ -170,6 +170,7 @@ impl ShardedIndex {
         self.ring = ShardRing::new(&self.config);
         self.shards = (0..self.config.shard_count).map(|_| ShardData::default()).collect();
 
+        let old_shards_len = old_shards.len();
         let mut moved = 0;
         for (idx, shard) in old_shards.into_iter().enumerate() {
             for (uid, data) in shard.objects {
@@ -183,7 +184,7 @@ impl ShardedIndex {
                 }
             }
         }
-        info!(old_shards = old_shards.len(), new_shards = self.shards.len(), moved, "Shard rebalance completed");
+        info!(old_shards = old_shards_len, new_shards = self.shards.len(), moved, "Shard rebalance completed");
         moved
     }
 }

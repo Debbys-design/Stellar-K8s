@@ -41,7 +41,7 @@ use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Registry;
 use reqwest::Client;
-use stellar_k8s::error::{Error, Result};
+use crate::error::{Error, Result};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
@@ -295,8 +295,8 @@ async fn poll_stellar_core(client: &Client, endpoint: &str) -> Result<(u64, Stri
         ));
     }
 
-    let info: StellarCoreInfoResponse = resp
-        .json()
+    let info = resp
+        .json::<StellarCoreInfoResponse>()
         .await
         .map_err(|e| {
             Error::internal_step("parse stellar core response", format!("JSON parse failed: {e}"))

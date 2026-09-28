@@ -86,6 +86,7 @@ use super::mtls;
 use super::oci_snapshot;
 use super::ledger_migration;
 use super::operator_config::{hardcoded_defaults, OperatorConfig};
+use super::peer_connectivity;
 use super::peer_discovery;
 use super::phases::{PhaseMachine, ReconcilePhase};
 use super::pss;
@@ -3664,6 +3665,55 @@ pub(crate) fn apply_phase_conditions(
     }
 }
 
+/// Probe a validator's configured peers and fold the result into `conditions`.
+///
+/// Without this a validator that cannot reach any peer still reports `Ready`:
+/// `stellar-core` logs a failed overlay connection, nothing restarts, and the
+/// node is simply absent from quorum. The `PeerConnectivity` condition makes
+/// that state visible, and the reconciler requeues well inside the 60 s budget
+/// this issue asks for.
+///
+/// The condition is removed rather than left stale for nodes the check does not
+/// apply to (non-validators, suspended nodes, validators with no peers).
+async fn apply_peer_connectivity_condition(conditions: &mut Vec<Condition>, node: &StellarNode) {
+    let peers = if node.spec.suspended {
+        // Replicas are scaled to 0, so there is no overlay to diagnose.
+        Vec::new()
+    } else {
+        peer_connectivity::known_peers_for_node(node)
+    };
+
+    if peers.is_empty() {
+        conditions::remove_condition(conditions, conditions::CONDITION_TYPE_PEER_CONNECTIVITY);
+        return;
+    }
+
+    let report = peer_connectivity::probe_peers(
+        &peers,
+        Duration::from_secs(peer_connectivity::DEFAULT_PROBE_TIMEOUT_SECS),
+        peer_connectivity::DEFAULT_INTERVAL_SECS,
+    )
+    .await;
+    let verdict = peer_connectivity::connectivity_verdict(&report);
+
+    if report.is_fully_degraded() {
+        warn!(
+            "node {}: all {} configured peers unreachable: {}",
+            node.name_any(),
+            report.peers.len(),
+            verdict.message
+        );
+    }
+
+    conditions::set_condition(
+        conditions,
+        conditions::CONDITION_TYPE_PEER_CONNECTIVITY,
+        verdict.status,
+        verdict.reason,
+        &verdict.message,
+    );
+}
+
 #[allow(deprecated)]
 #[instrument(skip(client, node, message), fields(name = %node.name_any(), namespace = node.namespace(), phase))]
 async fn update_status(
@@ -3693,6 +3743,9 @@ async fn update_status(
         .unwrap_or_default();
 
     apply_phase_conditions(&mut conditions, phase, message.as_deref());
+
+    // Peer reachability for validators (#1561).
+    apply_peer_connectivity_condition(&mut conditions, node).await;
 
     // Set observed generation on all conditions
     if let Some(gen) = observed_generation {
@@ -3838,6 +3891,56 @@ async fn run_archive_integrity_check(
                 "All {} archive(s) are within {} ledgers of the node",
                 results.len(),
                 ARCHIVE_LAG_THRESHOLD
+            ),
+        );
+    }
+
+    // Check history archive version compatibility against core binary version before catchup
+    let compat_results = crate::controller::archive_health::check_archives_version_compatibility(
+        archive_urls,
+        &node.spec.version,
+        Some(std::time::Duration::from_secs(5)),
+    )
+    .await;
+
+    let incompatible: Vec<_> = compat_results.iter().filter(|r| !r.is_compatible).collect();
+    if !incompatible.is_empty() {
+        let msg = incompatible
+            .iter()
+            .map(|r| r.summary())
+            .collect::<Vec<_>>()
+            .join("; ");
+        warn!(
+            "Incompatible history archive version detected for {}/{}: {}",
+            namespace, name, msg
+        );
+        publish_stellar_event!(
+            client,
+            reporter,
+            node,
+            EventType::Warning,
+            "ArchiveVersionIncompatible",
+            "ArchiveCompatibility",
+            &msg,
+        )
+        .await?;
+        conditions::set_condition(
+            &mut conds,
+            "ArchiveVersionCompatible",
+            conditions::CONDITION_STATUS_FALSE,
+            "IncompatibleArchiveVersion",
+            &msg,
+        );
+    } else {
+        conditions::set_condition(
+            &mut conds,
+            "ArchiveVersionCompatible",
+            conditions::CONDITION_STATUS_TRUE,
+            "ArchiveCompatible",
+            &format!(
+                "All {} configured archive(s) are state-version compatible with stellar-core {}",
+                archive_urls.len(),
+                node.spec.version
             ),
         );
     }

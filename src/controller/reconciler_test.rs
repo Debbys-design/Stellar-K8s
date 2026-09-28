@@ -299,6 +299,7 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                         http_port: None,
                         log_level: None,
                         additional_config: None,
+                        ..Default::default()
                     }),
                     enable_preflight: true,
                     max_events_per_request: 10000,

@@ -345,6 +345,7 @@ impl SchemaVersionConverter {
         for (i, part) in parts.iter().enumerate() {
             if i == parts.len() - 1 {
                 current[part] = value;
+                break;
             } else {
                 if !current[part].is_object() {
                     current[part] = serde_json::json!({});

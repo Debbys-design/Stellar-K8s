@@ -67,6 +67,7 @@ pub mod control_plane_health;
 pub mod dr_policy;
 pub mod federation;
 pub mod internal_api_schema;
+pub mod job_retention;
 pub mod multi_region;
 pub mod progressive_delivery;
 pub mod read_replica;
@@ -103,7 +104,6 @@ pub mod compliance_report;
 pub mod incident;
 pub mod multisig_operation;
 pub mod validator_score;
-pub mod service_ownership;
 pub mod stellar_registry;
 pub mod stellar_security;
 
@@ -136,6 +136,9 @@ pub use federation::{
 pub use internal_api_schema::{
     ConsumerDeploymentPolicy, InternalApiSchema, InternalApiSchemaSpec, InternalApiSchemaStatus,
     SchemaDeploymentPhase,
+};
+pub use job_retention::{
+    JobRetentionPolicy, JobRetentionPolicySpec, JobRetentionPolicyStatus, ReclaimedByClass,
 };
 pub use multi_region::{
     ClusterConfig, ClusterHealthStatus, FailoverPolicy, MultiRegionConfig, MultiRegionHealthCheck,

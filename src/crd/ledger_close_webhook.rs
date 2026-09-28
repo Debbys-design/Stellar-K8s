@@ -50,7 +50,23 @@ pub enum LedgerCloseEventType {
 }
 
 /// Specification for a `LedgerCloseWebhook` resource.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+///
+/// `LedgerCloseWebhook` — subscribes an external HTTP endpoint to Stellar
+/// ledger-close events with HMAC-signed payloads and at-least-once delivery.
+#[derive(CustomResource, Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[kube(
+    group = "stellar.org",
+    version = "v1alpha1",
+    kind = "LedgerCloseWebhook",
+    namespaced,
+    shortname = "lchook",
+    status = "LedgerCloseWebhookStatus",
+    printcolumn = r#"{"name":"URL","type":"string","jsonPath":".spec.url"}"#,
+    printcolumn = r#"{"name":"Enabled","type":"boolean","jsonPath":".spec.enabled"}"#,
+    printcolumn = r#"{"name":"Phase","type":"string","jsonPath":".status.phase"}"#,
+    printcolumn = r#"{"name":"Delivered","type":"integer","jsonPath":".status.totalDelivered"}"#,
+    printcolumn = r#"{"name":"LastSeq","type":"integer","jsonPath":".status.lastDeliveredSequence"}"#
+)]
 #[serde(rename_all = "camelCase")]
 pub struct LedgerCloseWebhookSpec {
     /// Target URL that will receive POST requests.
@@ -155,26 +171,6 @@ pub struct LedgerCloseWebhookStatus {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub delivery_log: Vec<DeliveryLogEntry>,
 }
-
-// ─── CRD derivation ──────────────────────────────────────────────────────────
-
-/// `LedgerCloseWebhook` — subscribes an external HTTP endpoint to Stellar
-/// ledger-close events with HMAC-signed payloads and at-least-once delivery.
-#[derive(CustomResource, Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[kube(
-    group = "stellar.org",
-    version = "v1alpha1",
-    kind = "LedgerCloseWebhook",
-    namespaced,
-    status = "LedgerCloseWebhookStatus",
-    printcolumn = r#"{"name":"URL","type":"string","jsonPath":".spec.url"}"#,
-    printcolumn = r#"{"name":"Enabled","type":"boolean","jsonPath":".spec.enabled"}"#,
-    printcolumn = r#"{"name":"Phase","type":"string","jsonPath":".status.phase"}"#,
-    printcolumn = r#"{"name":"Delivered","type":"integer","jsonPath":".status.totalDelivered"}"#,
-    printcolumn = r#"{"name":"LastSeq","type":"integer","jsonPath":".status.lastDeliveredSequence"}"#
-)]
-#[serde(rename_all = "camelCase")]
-pub struct LedgerCloseWebhookSpec;
 
 // ─── Payload ─────────────────────────────────────────────────────────────────
 

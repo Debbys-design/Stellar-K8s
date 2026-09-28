@@ -1972,3 +1972,128 @@ fn test_spec_and_jurisdiction_tolerations_are_applied() {
         "jurisdiction tolerations must be merged"
     );
 }
+
+/// `KNOWN_PEERS` is handed to the health sidecar so it probes exactly the peers
+/// the reconciler reports in the `PeerConnectivity` condition (#1561).
+mod sidecar_peer_env {
+    use crate::controller::peer_connectivity::{parse_known_peers, PeerEndpoint};
+    use crate::controller::resources::build_deployment;
+    use crate::crd::types::{HistoryMode, NodeType, StellarNode, StellarNodeSpec, ValidatorConfig};
+
+    fn sidecar_env(node: &StellarNode) -> Vec<(String, String)> {
+        let deployment = build_deployment(node, false);
+        let pod_spec = deployment
+            .spec
+            .expect("deployment spec")
+            .template
+            .spec
+            .expect("pod spec");
+        let sidecar = pod_spec
+            .containers
+            .into_iter()
+            .find(|c| c.name == "stellar-health-check")
+            .expect("health check sidecar must be injected");
+        sidecar
+            .env
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|e| e.value.map(|v| (e.name, v)))
+            .collect()
+    }
+
+    fn validator_with_peers(known_peers: &str) -> StellarNode {
+        let mut node = StellarNode::new(
+            "peer-env",
+            StellarNodeSpec {
+                node_type: NodeType::Validator,
+                history_mode: HistoryMode::Full,
+                ..Default::default()
+            },
+        );
+        node.metadata.namespace = Some("default".to_string());
+        node.spec.validator_config = Some(ValidatorConfig {
+            known_peers: Some(known_peers.to_string()),
+            ..Default::default()
+        });
+        node
+    }
+
+    #[test]
+    fn validator_sidecar_receives_a_parsable_known_peers_value() {
+        let node =
+            validator_with_peers(r#"KNOWN_PEERS=["10.0.0.11:11625","validator2.example.com"]"#);
+        let env = sidecar_env(&node);
+
+        let value = env
+            .iter()
+            .find(|(name, _)| name == "KNOWN_PEERS")
+            .map(|(_, v)| v.clone())
+            .expect("validators must receive KNOWN_PEERS for peer probing");
+
+        assert_eq!(
+            parse_known_peers(&value),
+            vec![
+                PeerEndpoint::new("10.0.0.11", 11625),
+                PeerEndpoint::new("validator2.example.com", 11625),
+            ]
+        );
+    }
+
+    #[test]
+    fn validator_without_peers_receives_an_empty_list() {
+        let node = validator_with_peers("");
+        let env = sidecar_env(&node);
+
+        let value = env
+            .iter()
+            .find(|(name, _)| name == "KNOWN_PEERS")
+            .map(|(_, v)| v.clone())
+            .expect("validators always receive KNOWN_PEERS");
+        assert!(
+            parse_known_peers(&value).is_empty(),
+            "unexpected value: {value}"
+        );
+    }
+
+    #[test]
+    fn non_validators_do_not_receive_known_peers() {
+        let mut node = StellarNode::new(
+            "horizon-peer-env",
+            StellarNodeSpec {
+                node_type: NodeType::Horizon,
+                ..Default::default()
+            },
+        );
+        node.metadata.namespace = Some("default".to_string());
+        node.spec.horizon_config = Some(crate::crd::types::HorizonConfig {
+            stellar_core_url: "http://core:8000".to_string(),
+            ..Default::default()
+        });
+
+        let env = sidecar_env(&node);
+        assert!(
+            !env.iter().any(|(name, _)| name == "KNOWN_PEERS"),
+            "horizon has no overlay peers: {env:?}"
+        );
+    }
+
+    #[test]
+    fn sidecar_peer_list_matches_what_the_reconciler_probes() {
+        // The two signals must be derived from one source of truth, otherwise a
+        // probe can pass while the condition reports the peer unreachable.
+        let node = validator_with_peers(r#"KNOWN_PEERS=["10.0.0.11:11625","10.0.0.12:11625"]"#);
+
+        let from_env = env_value(&node);
+        let from_reconciler = crate::controller::peer_connectivity::known_peers_for_node(&node);
+
+        assert_eq!(parse_known_peers(&from_env), from_reconciler);
+    }
+
+    fn env_value(node: &StellarNode) -> String {
+        sidecar_env(node)
+            .into_iter()
+            .find(|(name, _)| name == "KNOWN_PEERS")
+            .map(|(_, v)| v)
+            .expect("KNOWN_PEERS must be injected for validators")
+    }
+}

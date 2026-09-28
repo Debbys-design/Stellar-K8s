@@ -998,6 +998,13 @@ pub struct HorizonConfig {
     pub enable_experimental_ingestion: bool,
     #[serde(default = "default_true")]
     pub auto_migration: bool,
+    /// Enable leader election for ingestion across multiple Horizon replicas.
+    /// Exactly one replica ingests while standby replicas serve API-only traffic.
+    #[serde(default)]
+    pub enable_ingestion_leader_election: bool,
+    /// Lease duration in seconds for Horizon ingestion leader election (default: 15s).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ingestion_lease_duration_seconds: Option<i32>,
 }
 
 fn default_true() -> bool {
@@ -1008,7 +1015,7 @@ fn default_ingest_workers() -> u32 {
     1
 }
 
-/// Captive Core configuration for Soroban RPC
+/// Captive Core configuration for Soroban RPC and Horizon ingestion
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptiveCoreConfig {
@@ -1024,7 +1031,22 @@ pub struct CaptiveCoreConfig {
     pub log_level: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_config: Option<String>,
+    /// Explicit database connection string for captive core (e.g. "sqlite3:///var/lib/stellar/captive-core/stellar.db").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    /// Directory path for bucket storage on persistent volume (e.g. "/var/lib/stellar/buckets").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bucket_dir_path: Option<String>,
+    /// Directory path for temporary files on persistent volume (e.g. "/var/lib/stellar/tmp").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tmp_dir_path: Option<String>,
+    /// Number of worker threads for captive core (derived from container CPU limits if unset).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_threads: Option<u32>,
 }
+
+/// Type alias for Soroban RPC configuration
+pub type SorobanRpcConfig = SorobanConfig;
 
 /// Soroban RPC server configuration
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq)]
@@ -1043,11 +1065,29 @@ pub struct SorobanConfig {
     pub enable_preflight: bool,
     #[serde(default = "default_max_events")]
     pub max_events_per_request: u32,
+    /// Maximum page size (limit) for RPC queries like getEvents and getLedgerEntries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_page_size: Option<u32>,
+    /// Size of LRU cache for ledger entries in megabytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_size_mb: Option<u32>,
     /// Multi-layered cache configuration (L1 in-memory LRU + L2 local-SSD).
     /// When set, the operator provisions an emptyDir volume and injects cache
     /// path / size env vars into the Soroban RPC container.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_config: Option<crate::controller::soroban_cache::SorobanCacheConfig>,
+}
+
+impl SorobanConfig {
+    /// Return the configured max page size or default (100)
+    pub fn effective_max_page_size(&self) -> u32 {
+        self.max_page_size.unwrap_or(100).max(1)
+    }
+
+    /// Return the configured cache size in MB or default (256 MB)
+    pub fn effective_cache_size_mb(&self) -> u32 {
+        self.cache_size_mb.unwrap_or(256).max(1)
+    }
 }
 
 /// External database configuration for managed Postgres databases

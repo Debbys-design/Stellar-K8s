@@ -25,6 +25,13 @@ pub const CONDITION_TYPE_AVAILABLE: &str = "Available";
 /// Compliance condition type for testnet validation warnings
 pub const CONDITION_TYPE_COMPLIANCE: &str = "Compliance";
 
+/// Peer reachability condition for validator overlay connectivity.
+///
+/// `True` means at least one configured peer answered, `False` means every
+/// configured peer is unreachable, and `Unknown` means no peers are configured.
+/// See [`crate::controller::peer_connectivity`].
+pub const CONDITION_TYPE_PEER_CONNECTIVITY: &str = "PeerConnectivity";
+
 /// Standard condition statuses
 pub const CONDITION_STATUS_TRUE: &str = "True";
 pub const CONDITION_STATUS_FALSE: &str = "False";

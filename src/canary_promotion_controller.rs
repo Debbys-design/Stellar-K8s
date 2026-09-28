@@ -72,20 +72,23 @@ impl CanaryPromotionController {
         );
 
         // Check for human override annotation
-        if let Some(annotations) = &pd.metadata.annotations {
-            if let Some(override_action) = annotations.get("stellar.io/override") {
-                return self.handle_override(pd, override_action).await;
-            }
+        let override_action = pd
+            .metadata
+            .annotations
+            .as_ref()
+            .and_then(|a| a.get("stellar.io/override").cloned());
+        if let Some(action) = override_action {
+            return self.handle_override(pd, &action).await;
         }
 
         // Get or initialize status
-        let status = pd.status.as_mut().unwrap_or_else(|| {
+        if pd.status.is_none() {
             pd.status = Some(ProgressiveDeliveryStatus::default());
-            pd.status.as_mut().unwrap()
-        });
+        }
+        let phase = pd.status.as_ref().unwrap().phase.clone();
 
         // State machine for promotion phases
-        match status.phase {
+        match phase {
             PromotionPhase::Pending => self.on_pending(pd).await,
             PromotionPhase::AnalyzingBaseline => self.on_analyzing_baseline(pd).await,
             PromotionPhase::CanaryActive => self.on_canary_active(pd).await,
@@ -158,10 +161,9 @@ impl CanaryPromotionController {
 
     /// Phase 4: Waiting for analysis - evaluate gates
     async fn on_waiting_for_analysis(&self, pd: &mut ProgressiveDelivery) -> Result<()> {
-        let status = pd.status.as_mut().unwrap();
-
         // Evaluate SLO gates
         let gate_results = self.evaluate_gates(pd).await?;
+        let status = pd.status.as_mut().unwrap();
         status.gate_results = gate_results.clone();
 
         // Check if all gates passed
@@ -174,8 +176,7 @@ impl CanaryPromotionController {
             // Check if any gate exceeded violation threshold
             let has_violations = gate_results
                 .iter()
-                .any(|g| g.violation_count > 0)
-        ;
+                .any(|g| g.violation_count > 0);
             if has_violations {
                 status.phase = PromotionPhase::RollingBack;
                 status.rollback_in_progress = true;
@@ -193,10 +194,9 @@ impl CanaryPromotionController {
 
     /// Phase 5: Ready to promote - advance weight
     async fn on_ready_to_promote(&self, pd: &mut ProgressiveDelivery) -> Result<()> {
-        let status = pd.status.as_mut().unwrap();
-
         // Calculate next weight
         let next_weight = self.get_next_weight(pd);
+        let status = pd.status.as_mut().unwrap();
         status.current_step += 1;
 
         if next_weight >= 100 {

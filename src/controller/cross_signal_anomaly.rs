@@ -168,6 +168,18 @@ pub struct PostDeployStats {
     pub throughput: MetricStats,
 }
 
+impl From<BaselineStats> for PostDeployStats {
+    fn from(b: BaselineStats) -> Self {
+        Self {
+            sample_count: b.sample_count,
+            error_rate: b.error_rate,
+            latency_p50: b.latency_p50,
+            latency_p95: b.latency_p95,
+            throughput: b.throughput,
+        }
+    }
+}
+
 /// Basic statistics for a metric.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -230,7 +242,7 @@ impl CrossSignalDetector {
         drop(events);
 
         let traffic = self.traffic_metrics.read().await;
-        let service_metrics = traffic.get(&service)?;
+        let service_metrics = traffic.get(&service)?.clone();
         drop(traffic);
 
         // Split into pre/post windows
@@ -282,7 +294,7 @@ impl CrossSignalDetector {
             anomaly_detected,
             signals,
             baseline,
-            post_deploy: post,
+            post_deploy: post.into(),
         };
 
         self.analyses.write().await.insert(deployment_id.to_string(), analysis.clone());
