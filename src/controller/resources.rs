@@ -237,9 +237,10 @@ fn default_liveness_probe(node_type: &crate::crd::NodeType) -> k8s_openapi::api:
 /// Default readiness probe per node type.
 ///
 /// - Validator: exec probe that queries the Stellar-Core HTTP API (`/info`) and
-///   marks the pod **Not Ready** when the node is in `CATCHING_UP` or `SYNCING`
-///   state.  The pod remains Not Ready until the node is fully synced, preventing
-///   traffic from being routed to a node that cannot yet participate in consensus.
+///   marks the pod **Ready** only when the node is in `Synced!` or `Tracking!` state.
+///   All other states (CATCHING_UP, SYNCING, JOINING_SCP, BOOTING_UP, DISCONNECTED, etc.)
+///   mark the pod Not Ready, preventing traffic from being routed to nodes that cannot
+///   yet participate in consensus or have lost connectivity.
 ///   The liveness probe (TCP socket) is intentionally kept separate so that a
 ///   syncing node is never restarted — only removed from the ready set.
 /// - Horizon / SorobanRpc: HTTP GET /health on port 8000
@@ -248,13 +249,31 @@ fn default_readiness_probe(node_type: &crate::crd::NodeType) -> k8s_openapi::api
     use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
     match node_type {
         crate::crd::NodeType::Validator => {
-            // Query /info and fail if the node is CATCHING_UP or SYNCING.
+            // Query /info and mark the pod ready only when the node is in a fully operational state.
+            //
+            // Ready states (pod accepts traffic):
+            //   - Synced!       : fully synced with the network
+            //   - Tracking!     : actively tracking consensus (rare but valid)
+            //
+            // Not-ready states (pod removed from Service endpoints):
+            //   - Booting Up    : initial startup, not yet connected to peers
+            //   - Joining SCP   : attempting to join consensus, not yet synced
+            //   - Connected     : connected to peers but not yet synced
+            //   - Catching up   : actively syncing historical ledgers (compute-intensive)
+            //   - Syncing       : similar to catching up
+            //   - Stopping      : graceful shutdown in progress
+            //   - Disconnected  : lost connectivity to quorum peers
+            //
+            // This ensures only healthy, synced validators receive production traffic.
             // wget is available in the stellar/stellar-core image.
-            // Exit 1 (not ready) when state contains CATCHING_UP or SYNCING.
             let script = concat!(
                 "RESP=$(wget -qO- http://localhost:11626/info 2>/dev/null) && ",
-                "echo \"$RESP\" | grep -qv '\"state\".*\"CATCHING_UP\"' && ",
-                "echo \"$RESP\" | grep -qv '\"state\".*\"SYNCING\"'"
+                "STATE=$(echo \"$RESP\" | grep -o '\"state\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' | ",
+                "sed 's/.*\"\\([^\"]*\\)\"/\\1/') && ",
+                "case \"$STATE\" in ",
+                "  'Synced!'|'Tracking!') exit 0 ;; ",
+                "  *) exit 1 ;; ",
+                "esac"
             );
             Probe {
                 exec: Some(ExecAction {
@@ -3522,9 +3541,37 @@ fn build_container(node: &StellarNode, enable_mtls: bool) -> Container {
         NodeType::SorobanRpc => {}
     }
 
+    // Determine explicit container command and args for each node type.
+    // These can be overridden by the user via spec.command and spec.args.
+    let (default_command, default_args): (Option<Vec<String>>, Option<Vec<String>>) = match node.spec.node_type {
+        NodeType::Validator => (
+            Some(vec![
+                "/usr/bin/stellar-core".to_string(),
+                "run".to_string(),
+                "--conf".to_string(),
+                "/config/stellar-core.cfg".to_string(),
+            ]),
+            None,
+        ),
+        NodeType::Horizon => (
+            Some(vec!["/stellar-horizon".to_string()]),
+            None,
+        ),
+        NodeType::SorobanRpc => (
+            Some(vec!["/stellar-rpc".to_string()]),
+            None,
+        ),
+    };
+
+    // Apply user overrides if provided
+    let final_command = node.spec.command.clone().or(default_command);
+    let final_args = node.spec.args.clone().or(default_args);
+
     Container {
         name: "stellar-node".to_string(),
         image: Some(node.spec.container_image()),
+        command: final_command,
+        args: final_args,
         ports: Some(vec![ContainerPort {
             container_port,
             ..Default::default()
