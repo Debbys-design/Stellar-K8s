@@ -45,6 +45,17 @@ pub struct ConsumerId {
     pub api_key_hash: Option<String>,
 }
 
+impl std::fmt::Display for ConsumerId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match (&self.workload, &self.api_key_hash) {
+            (Some(w), Some(k)) => write!(f, "{}:{}:{}", self.tenant, w, k),
+            (Some(w), None) => write!(f, "{}:{}", self.tenant, w),
+            (None, Some(k)) => write!(f, "{}:{}", self.tenant, k),
+            (None, None) => write!(f, "{}", self.tenant),
+        }
+    }
+}
+
 /// Rate limit bucket configuration for a consumer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,7 +172,7 @@ struct GlobalUsageTracker {
     window_start: Instant,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct ConsumerUsage {
     requests: u64,
     rejected: u64,
@@ -205,9 +216,9 @@ impl FairShareRateLimiter {
 
         // Update tuner for adaptive behavior
         if !allowed {
-            self.tuner.write().await.record(consumer.to_string(), true, ErrorClass::RateLimit);
+            self.tuner.write().await.record(&consumer.to_string(), true, Some(ErrorClass::RateLimit));
         } else {
-            self.tuner.write().await.record(consumer.to_string(), false, ErrorClass::Transient);
+            self.tuner.write().await.record(&consumer.to_string(), false, Some(ErrorClass::Transient));
         }
 
         let retry_after_ms = if !allowed {

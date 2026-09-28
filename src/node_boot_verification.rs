@@ -35,7 +35,8 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
-use crate::bootstrap_verify::{run_bootstrap_verification, CheckResult, CheckSeverity};
+use crate::bootstrap_verify::run_bootstrap_verification;
+use crate::preflight::{CheckResult, CheckSeverity};
 
 /// Expected node image specification.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -218,7 +219,7 @@ async fn verify_os_release(spec: &ExpectedImageSpec) -> VerificationCheck {
         })
         .unwrap_or_default();
 
-    let passed = expected.is_empty() || actual == expected;
+    let passed = expected.is_empty() || actual.as_str() == expected.as_str();
     let message = if passed {
         format!("OS release OK: {}", actual)
     } else {

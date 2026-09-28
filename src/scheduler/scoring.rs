@@ -464,6 +464,19 @@ async fn find_peers(pod: &Pod, client: &Client) -> Result<Vec<Pod>> {
         .collect())
 }
 
+/// Extract tenant ID from pod metadata or labels for fair-share scheduling.
+pub fn extract_tenant_id(pod: &Pod) -> Option<String> {
+    pod.metadata
+        .labels
+        .as_ref()
+        .and_then(|l| {
+            l.get("tenant.stellar.org/id")
+                .or_else(|| l.get("stellar.org/tenant"))
+                .or_else(|| l.get("tenant"))
+        })
+        .cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
