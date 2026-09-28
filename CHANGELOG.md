@@ -3,6 +3,59 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+## Chart v3.2.0 (2026-09-28) [minor]
+
+• Merge pull request #1601 from itsnotOJ/fix/1504-epic-multi-region-failover-orchestration-with-health-gated-traffic-shift
+• [#1504] [EPIC] Multi-Region Failover Orchestration with Health-Gated Traffic Shift
+• Merge branch 'main' into fix/1504-epic-multi-region-failover-orchestration-with-health-gated-traffic-shift
+• Merge pull request #1600 from itsnotOJ/fix/1503-epic-job-and-cronjob-orphan-detection-with-ownership-reconciliation
+• [#1503] [EPIC] Job and CronJob Orphan Detection with Ownership Reconciliation
+• Merge pull request #1599 from Dantama022/main
+✨ feat(platform): end-to-end supply-chain provenance, immutable audit chain, adaptive HPA on custom SLIs, and multi-tenant fair-share scheduler (#1477 #1478 #1479 #1480)
+• Merge branch 'main' into main
+• merge: resolve upstream main into the job orphan detection branch
+• merge: resolve upstream main into the multi-region failover branch
+✨ feat(failover): health-gated incremental multi-region traffic shift plan
+• - add the TrafficShiftPlan CR: a controller-owned, declarative plan that names
+•   both regions, the weighted routing record, one health gate, the shift shape,
+•   the failback policy and the declared RTO/RPO
+• - health gate scores primary and secondary independently against the same
+•   HealthGateSpec, and failback runs the identical function with the roles
+•   swapped, so returning traffic needs the same evidence as taking it away
+• - incremental shift state machine: drain, publish, soak; never moves weight
+•   with the gate closed, never overshoots the target, and holds the last safe
+•   increment when a soak breaches the error budget
+• - connection draining and DNS TTL handled explicitly: the propagation wait is
+•   max(ttl, soak) so a short soak cannot outrun resolver caches
+• - render the weighted record declaratively as an external-dns DNSEndpoint and
+•   record every step, gate decision, weight and RTO/RPO measurement in the plan
+•   status, mirrored to a stellar.org/applied-traffic-record annotation
+• - RTO measurement reports the overage, RPO evidence raises a Degraded
+•   condition, and drill results render into the DR compliance report
+• - 28 deterministic unit tests for the gate, both directions, the state
+•   machine, drain/TTL math, record rendering and RTO/RPO reporting
+✨ feat(jobs): Job/CronJob orphan detection with ownership reconciliation
+• - add the JobRetentionPolicy CRD so every retention window is declarative
+•   (completed jobs, failed jobs, stuck-job grace, terminal pods, scope label,
+•   grace period, dry-run) instead of a hardcoded TTL
+• - add a namespace-scoped reconciler with a pure planning core: a snapshot of
+•   CronJobs, Jobs and Pods plus the policy yields a deterministic reclaim plan
+• - classify all five orphan classes: deleted CronJob, broken ownerReference,
+•   stuck failed job, completed pod, and namespace-move remnant
+• - repair ownerReferences broken by partial deletions instead of only reporting
+•   them, re-pointing at the live owner UID
+• - never touch Active/Pending jobs or Running/Pending pods, and only reclaim a
+•   terminal pod once its owning job is itself terminal
+• - report reclaimed artifacts per namespace and per orphan class through new
+•   Prometheus metrics, plus status conditions and requeue interval
+• - 44 deterministic unit tests cover every orphan class, the safety properties,
+•   determinism under a mid-cycle spec change, and the kube adapters
+📝 chore(helm): bump chart to v3.1.0 [skip ci]
+• Merge branch 'main' into main
+📝 chore(helm): bump chart to v3.0.0 [skip ci]
+✨ feat(platform): end-to-end supply-chain provenance, immutable audit chain, adaptive HPA on custom SLIs, and multi-tenant fair-share scheduler (#1477 #1478 #1479 #1480)
+
+
 ## Chart v3.1.0 (2026-09-28) [minor]
 
 • Merge branch 'main' into main
