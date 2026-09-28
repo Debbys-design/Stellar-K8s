@@ -22,6 +22,9 @@ pub const CONDITION_TYPE_PROGRESSING: &str = "Progressing";
 pub const CONDITION_TYPE_DEGRADED: &str = "Degraded";
 pub const CONDITION_TYPE_AVAILABLE: &str = "Available";
 
+/// Compliance condition type for testnet validation warnings
+pub const CONDITION_TYPE_COMPLIANCE: &str = "Compliance";
+
 /// Standard condition statuses
 pub const CONDITION_STATUS_TRUE: &str = "True";
 pub const CONDITION_STATUS_FALSE: &str = "False";

@@ -1098,7 +1098,7 @@ pub async fn ensure_canary_service(
     Ok(())
 }
 
-pub(crate) fn build_service(node: &StellarNode, enable_mtls: bool) -> Service {
+pub(crate) fn build_service(node: &StellarNode, _enable_mtls: bool) -> Service {
     let mut labels = standard_labels(node);
     merge_service_metadata_labels(&mut labels, node);
     let name = node.name_any();
@@ -1175,7 +1175,7 @@ pub(crate) fn build_service(node: &StellarNode, enable_mtls: bool) -> Service {
 
     merge_service_annotations(&mut annotations, node);
 
-    let http_port_name = if enable_mtls { "https" } else { "http" }.to_string();
+    let http_port_name = "http".to_string();
 
     let ports = match node.spec.node_type {
         NodeType::Validator => vec![
@@ -2011,6 +2011,9 @@ fn build_pod_template(
                 backup_url,
                 snapshot_ref.credentials_secret_ref.as_deref(),
                 snapshot_ref.restore_image.as_deref(),
+                snapshot_ref.sha256.as_deref(),
+                snapshot_ref.expected_ledger_sequence,
+                snapshot_ref.expected_network.as_deref(),
             ));
         }
     }
@@ -2732,12 +2735,77 @@ fn build_pod_template(
         }
     }
 
+    let mut pod_object_meta = merge_resource_meta(pod_object_meta, &node.spec.resource_meta);
+    if enable_mtls {
+        pod_object_meta
+            .annotations
+            .get_or_insert_with(BTreeMap::new)
+            .insert("sidecar.istio.io/inject".to_string(), "true".to_string());
+        pod_object_meta
+            .labels
+            .get_or_insert_with(BTreeMap::new)
+            .insert("stellar.org/mtls-mode".to_string(), "strict".to_string());
+    }
+
     PodTemplateSpec {
-        metadata: Some(merge_resource_meta(
-            pod_object_meta,
-            &node.spec.resource_meta,
-        )),
+        metadata: Some(pod_object_meta),
         spec: Some(pod_spec),
+    }
+}
+
+#[cfg(test)]
+mod istio_mtls_tests {
+    use super::{build_deployment, build_service};
+    use crate::crd::{NodeType, StellarNetwork, StellarNode, StellarNodeSpec};
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+    use std::collections::BTreeMap;
+
+    fn horizon_node() -> StellarNode {
+        StellarNode {
+            metadata: ObjectMeta {
+                name: Some("horizon-test".to_string()),
+                namespace: Some("stellar-system".to_string()),
+                ..Default::default()
+            },
+            spec: StellarNodeSpec {
+                node_type: NodeType::Horizon,
+                network: StellarNetwork::Testnet,
+                version: "v21.0.0".to_string(),
+                ..Default::default()
+            },
+            status: None,
+        }
+    }
+
+    #[test]
+    fn mtls_injects_istio_and_preserves_http_service_protocol() {
+        let mut node = horizon_node();
+        node.spec.resource_meta = Some(ObjectMeta {
+            annotations: Some(BTreeMap::from([(
+                "sidecar.istio.io/inject".to_string(),
+                "false".to_string(),
+            )])),
+            labels: Some(BTreeMap::from([(
+                "stellar.org/mtls-mode".to_string(),
+                "disabled".to_string(),
+            )])),
+            ..Default::default()
+        });
+        let deployment = build_deployment(&node, true);
+        let pod_template = deployment.spec.unwrap().template;
+        let metadata = pod_template.metadata.unwrap();
+        assert_eq!(
+            metadata.annotations.unwrap().get("sidecar.istio.io/inject"),
+            Some(&"true".to_string())
+        );
+        assert_eq!(
+            metadata.labels.unwrap().get("stellar.org/mtls-mode"),
+            Some(&"strict".to_string())
+        );
+
+        let service = build_service(&node, true);
+        let port = &service.spec.unwrap().ports.unwrap()[0];
+        assert_eq!(port.name.as_deref(), Some("http"));
     }
 }
 
@@ -3434,6 +3502,9 @@ fn build_snapshot_restore_container(
     backup_url: &str,
     credentials_secret_ref: Option<&str>,
     restore_image: Option<&str>,
+    expected_sha256: Option<&str>,
+    expected_ledger_sequence: Option<u64>,
+    expected_network: Option<&str>,
 ) -> Container {
     // Choose a sensible default image based on the URL scheme.
     let image = restore_image.map(|s| s.to_string()).unwrap_or_else(|| {
@@ -3456,37 +3527,65 @@ fn build_snapshot_restore_container(
     let script = if backup_url.starts_with("s3://") {
         format!(
             r#"set -e
-# Skip restore if data volume already has content (idempotent)
-if [ "$(ls -A /data 2>/dev/null)" ]; then
+# Skip restore after a previously verified import.
+if [ -f /data/.stellar-ledger-restore-complete ]; then
   echo "Data volume already populated, skipping snapshot restore."
   exit 0
 fi
-echo "Restoring from S3 snapshot: {url}"
-aws s3 cp "{url}" /tmp/snapshot.archive
+# ext4 may create lost+found on a new PVC; that alone is not existing ledger state.
+if find /data -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit | grep -q .; then
+    echo "Data volume already populated, skipping snapshot restore."
+    exit 0
+fi
+echo "Restoring from S3 snapshot: $BACKUP_URL"
+aws s3 cp "$BACKUP_URL" /tmp/snapshot.archive
+if [ -z "$EXPECTED_SHA256" ]; then
+    if aws s3 cp "$BACKUP_URL.sha256" /tmp/snapshot.archive.sha256; then
+        EXPECTED_SHA256=$(cut -d ' ' -f 1 /tmp/snapshot.archive.sha256)
+    fi
+fi
+if [ -n "$EXPECTED_SHA256" ]; then echo "$EXPECTED_SHA256  /tmp/snapshot.archive" | sha256sum -c -; else echo 'WARNING: restoring without an archive checksum'; fi
 echo "Extracting archive..."
 tar {decompress} -xf /tmp/snapshot.archive -C /data
-rm -f /tmp/snapshot.archive
-echo "Snapshot restore complete."
+if [ -f /data/files.sha256 ]; then (cd /data && sha256sum -c files.sha256); fi
+if [ -n "$EXPECTED_LEDGER_SEQUENCE" ]; then grep -Fx "ledger_sequence=$EXPECTED_LEDGER_SEQUENCE" /data/snapshot-manifest.txt; fi
+if [ -n "$EXPECTED_NETWORK" ]; then grep -Fx "network=$EXPECTED_NETWORK" /data/snapshot-manifest.txt; fi
+rm -f /data/files.sha256 /data/snapshot-manifest.txt /tmp/snapshot.archive /tmp/snapshot.archive.sha256
+touch /data/.stellar-ledger-restore-complete
+echo "Snapshot restore and verification complete."
 "#,
-            url = backup_url,
             decompress = decompress_flag,
         )
     } else {
         format!(
             r#"set -e
-# Skip restore if data volume already has content (idempotent)
-if [ "$(ls -A /data 2>/dev/null)" ]; then
+# Skip restore after a previously verified import.
+if [ -f /data/.stellar-ledger-restore-complete ]; then
   echo "Data volume already populated, skipping snapshot restore."
   exit 0
 fi
-echo "Restoring from backup: {url}"
-wget -q -O /tmp/snapshot.archive "{url}" || curl -fsSL -o /tmp/snapshot.archive "{url}"
+# ext4 may create lost+found on a new PVC; that alone is not existing ledger state.
+if find /data -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit | grep -q .; then
+    echo "Data volume already populated, skipping snapshot restore."
+    exit 0
+fi
+echo "Restoring from backup: $BACKUP_URL"
+wget -q -O /tmp/snapshot.archive "$BACKUP_URL" || curl -fsSL -o /tmp/snapshot.archive "$BACKUP_URL"
+if [ -z "$EXPECTED_SHA256" ]; then
+    if wget -q -O /tmp/snapshot.archive.sha256 "$BACKUP_URL.sha256" || curl -fsSL -o /tmp/snapshot.archive.sha256 "$BACKUP_URL.sha256"; then
+        EXPECTED_SHA256=$(cut -d ' ' -f 1 /tmp/snapshot.archive.sha256)
+    fi
+fi
+if [ -n "$EXPECTED_SHA256" ]; then echo "$EXPECTED_SHA256  /tmp/snapshot.archive" | sha256sum -c -; else echo 'WARNING: restoring without an archive checksum'; fi
 echo "Extracting archive..."
 tar {decompress} -xf /tmp/snapshot.archive -C /data
-rm -f /tmp/snapshot.archive
-echo "Snapshot restore complete."
+if [ -f /data/files.sha256 ]; then (cd /data && sha256sum -c files.sha256); fi
+if [ -n "$EXPECTED_LEDGER_SEQUENCE" ]; then grep -Fx "ledger_sequence=$EXPECTED_LEDGER_SEQUENCE" /data/snapshot-manifest.txt; fi
+if [ -n "$EXPECTED_NETWORK" ]; then grep -Fx "network=$EXPECTED_NETWORK" /data/snapshot-manifest.txt; fi
+rm -f /data/files.sha256 /data/snapshot-manifest.txt /tmp/snapshot.archive /tmp/snapshot.archive.sha256
+touch /data/.stellar-ledger-restore-complete
+echo "Snapshot restore and verification complete."
 "#,
-            url = backup_url,
             decompress = decompress_flag,
         )
     };
@@ -3495,6 +3594,18 @@ echo "Snapshot restore complete."
     let mut env: Vec<EnvVar> = vec![EnvVar {
         name: "BACKUP_URL".to_string(),
         value: Some(backup_url.to_string()),
+        ..Default::default()
+    }, EnvVar {
+        name: "EXPECTED_SHA256".to_string(),
+        value: expected_sha256.map(str::to_string),
+        ..Default::default()
+    }, EnvVar {
+        name: "EXPECTED_LEDGER_SEQUENCE".to_string(),
+        value: expected_ledger_sequence.map(|sequence| sequence.to_string()),
+        ..Default::default()
+    }, EnvVar {
+        name: "EXPECTED_NETWORK".to_string(),
+        value: expected_network.map(str::to_string),
         ..Default::default()
     }];
 

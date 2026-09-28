@@ -109,7 +109,7 @@ help: ## Show this help and the canonical command flow
 	@echo '  make all                         CI checks + build + Docker image'
 	@echo ''
 	@echo 'All available targets:'
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_][a-zA-Z0-9_-]+:.*?## / {printf "  %-28s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_][a-zA-Z0-9_-]+:.*## / {printf "  %-28s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ── Formatting & Linting ──────────────────────────────────────────────────────
 
@@ -251,14 +251,21 @@ docker-build-ci: ## Reproducible CI Docker build (builds binaries in container)
 	@echo "→ Building Docker image (CI mode)..."
 	DOCKER_BUILDKIT=1 $(DOCKER) build --target runtime -t $(IMAGE_NAME):$(IMAGE_TAG) .
 
-docker-multiarch: ## Trigger release pipeline multi-arch image build via CI (dispatches workflow_dispatch)
-	@echo "→ Triggering release pipeline (multi-arch images)..."
-	@command -v gh >/dev/null 2>&1 || { echo "✗ gh CLI not found. Install: https://cli.github.com/"; exit 1; }
-	gh workflow run release.yml
-	@echo "✓ Release pipeline dispatched. Monitor at: https://github.com/OtowoOrg/Stellar-K8s/actions"
+docker-multiarch: ## Build the multi-arch (linux/amd64 + linux/arm64) image locally via buildx
+	@echo "→ Building multi-arch image for linux/amd64,linux/arm64..."
+	@$(DOCKER) buildx version >/dev/null 2>&1 || { \
+		echo "✗ docker buildx not available. Install the buildx builder plugin."; \
+		exit 1; \
+	}
+	DOCKER_BUILDKIT=1 $(DOCKER) buildx build \
+		--platform linux/amd64,linux/arm64 \
+		--target runtime-local \
+		-t $(IMAGE_NAME):$(IMAGE_TAG) .
 
-# Multi-arch images are built by .github/workflows/release.yml on tagged releases and main pushes.
-# To trigger manually: make docker-multiarch
+# CI publishes the multi-arch image from the `container` job in
+# .github/workflows/release.yml (QEMU + buildx) on tagged releases. The
+# `make docker-multiarch` target above is the local equivalent.
+
 health: ## Run common repository health checks (format, lint, test, docs, links)
 	@bash scripts/repo-health.sh
 
@@ -311,10 +318,8 @@ pre-commit: ## Run pre-commit hooks manually
 	@command -v pre-commit >/dev/null 2>&1 || (echo "✗ pre-commit not installed. Run: make dev-setup" && exit 1)
 	@pre-commit run --all-files
 
-pre-commit-install: ## Install pre-commit hooks
-	@command -v pre-commit >/dev/null 2>&1 || pip install pre-commit
-	pre-commit install
-	pre-commit install --hook-type pre-push
+pre-commit-install: dev-setup-hooks ## Install pre-commit hooks (alias for dev-setup-hooks)
+	@echo "✓ pre-commit hooks installed"
 
 cleanup: ## Repository cleanup (scratch artifacts + obsolete archive-path guard)
 	@bash scripts/cleanup.sh $(if $(filter 1 true TRUE yes YES,$(DRY_RUN)),--dry-run,)
@@ -343,16 +348,16 @@ generate-openapi-spec: ## Validate operator REST OpenAPI specification
 	@python3 scripts/generate-openapi-spec.py --spec docs/api/openapi.yaml
 	@echo "✓ docs/api/openapi.yaml is valid"
 
-check-openapi-spec: ## Fail if OpenAPI spec is missing required operator routes
-	@echo "→ Checking OpenAPI spec coverage..."
-	@python3 scripts/generate-openapi-spec.py --spec docs/api/openapi.yaml --check
-
 docs-lint: ## Run rustdoc with warnings-as-errors (issue #1138: strict docs quality gate)
 	@echo "→ Running cargo doc with RUSTDOCFLAGS=-D warnings..."
 	@RUSTDOCFLAGS="-D warnings" K8S_OPENAPI_ENABLED_VERSION=1.30 \
 		$(CARGO) doc --no-deps --workspace \
 		--features "rest-api,metrics,admission-webhook,k8s-v1-30"
 	@echo "✓ rustdoc passed — no documentation warnings"
+
+check-openapi-spec: ## Fail if OpenAPI spec is missing required operator routes
+	@echo "→ Checking OpenAPI spec coverage..."
+	@python3 scripts/generate-openapi-spec.py --spec docs/api/openapi.yaml --check
 
 # ── Kubernetes ────────────────────────────────────────────────────────────────
 
@@ -408,7 +413,7 @@ check-license-headers: license-headers ## Alias for license-headers
 
 crd-benchmark: ## Build CRD operation benchmarks (#1287)
 	@echo "→ Building CRD benchmarks..."
-	@$(CARGO) bench --bench crd_operations --no-run 2>&1 | tail -5
+	@$(CARGO) bench --bench crd_operations --no-run
 	@echo "✓ CRD benchmarks compiled (run with: cargo bench --bench crd_operations)"
 
 # ── Issue #1288: API contract testing ─────────────────────────────────────────
@@ -565,11 +570,10 @@ benchmark-all: benchmark benchmark-webhook benchmark-crd benchmark-helm ## Run a
 
 # ── Running the Operator ──────────────────────────────────────────────────────
 
-run: build ## Run the operator (alias for run-local; matches README and CI references)
+run-local: build ## Run operator locally from built release binary
 	RUST_LOG=info ./target/release/stellar-operator run
 
-run-local: build ## Run operator locally from built release binary
-	RUST_LOG=info ./target/release/stellar-operator
+run: run-local ## Run the operator (alias for run-local; matches README and CI references)
 
 run-dev: ## Run operator in dev mode with hot reload
 	RUST_LOG=debug cargo watch -x run
