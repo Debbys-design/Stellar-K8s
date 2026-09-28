@@ -143,6 +143,7 @@ pub mod peer_discovery;
 mod peer_discovery_test;
 pub mod performance;
 pub mod phases;
+pub mod preemptive_spot_migration;
 pub mod pruning_reconciler;
 pub mod pruning_worker;
 pub mod quorum;

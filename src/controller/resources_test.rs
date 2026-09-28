@@ -467,6 +467,59 @@ peer-2 = "G..."
         }
     }
 
+    #[test]
+    fn test_critical_capacity_affinity_forbids_spot() {
+        let node = make_node(NodeType::Validator);
+        let affinity = merge_workload_affinity(&node).expect("affinity");
+        let na = affinity.node_affinity.expect("nodeAffinity");
+        let required = na
+            .required_during_scheduling_ignored_during_execution
+            .expect("required capacity filter");
+        let exprs: Vec<_> = required
+            .node_selector_terms
+            .iter()
+            .flat_map(|t| t.match_expressions.clone().unwrap_or_default())
+            .collect();
+        assert!(exprs.iter().any(|e| {
+            e.key == "node.kubernetes.io/lifecycle"
+                && e.operator == "NotIn"
+                && e.values
+                    .as_ref()
+                    .is_some_and(|v| v.iter().any(|x| x == "spot"))
+        }));
+    }
+
+    #[test]
+    fn test_best_effort_prefers_spot() {
+        let mut node = make_node(NodeType::SorobanRpc);
+        node.spec.placement.workload_tier = Some(crate::crd::WorkloadTier::BestEffort);
+        let affinity = merge_workload_affinity(&node).expect("affinity");
+        let na = affinity.node_affinity.expect("nodeAffinity");
+        let preferred = na
+            .preferred_during_scheduling_ignored_during_execution
+            .expect("preferred spot");
+        assert!(preferred.iter().any(|t| {
+            t.weight == 100
+                && t.preference
+                    .match_expressions
+                    .as_ref()
+                    .is_some_and(|exprs| {
+                        exprs.iter().any(|e| {
+                            e.key == "node.kubernetes.io/lifecycle"
+                                && e.operator == "In"
+                                && e.values
+                                    .as_ref()
+                                    .is_some_and(|v| v.contains(&"spot".into()))
+                        })
+                    })
+        }));
+        let labels = standard_labels(&node);
+        assert_eq!(
+            labels.get("stellar.org/workload-tier").map(String::as_str),
+            Some("best-effort")
+        );
+    }
+
     fn make_node(node_type: NodeType) -> StellarNode {
         use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
         StellarNode {
