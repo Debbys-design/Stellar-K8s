@@ -467,6 +467,15 @@ pub async fn run_controller(state: Arc<ControllerState>) -> Result<()> {
         }
     });
 
+    // Planned-maintenance orchestrator (MaintenancePlan CR). Complements, does
+    // not replace, the reactive NodeDrainOrchestrator above.
+    let plan_client = client.clone();
+    let plan_reporter = state.event_reporter.clone();
+    tokio::spawn(async move {
+        if let Err(e) =
+            maintenance::run_maintenance_plan_controller(plan_client, plan_reporter).await
+        {
+            error!("MaintenancePlan controller stopped with error: {}", e);
     // Preemptive migration for scheduled-node-group / spot interruption signals (#1484).
     let preemptive = Arc::new(
         super::preemptive_spot_migration::PreemptiveSpotMigrator::new(
