@@ -148,6 +148,7 @@ pub mod logging;
 pub mod message_queue;
 pub mod migration_safety;
 pub mod network_observability;
+pub mod observability_contract;
 pub mod node_boot_verification;
 pub mod plugin_sdk;
 pub mod policy_engine;
