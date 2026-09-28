@@ -143,6 +143,7 @@ pub mod peer_discovery;
 mod peer_discovery_test;
 pub mod performance;
 pub mod phases;
+pub mod policy_bundle;
 pub mod pruning_reconciler;
 pub mod pruning_worker;
 pub mod quorum;
@@ -270,6 +271,7 @@ pub use peer_discovery::{
     get_peers_from_config_map, trigger_peer_config_reload, PeerDiscoveryConfig,
     PeerDiscoveryManager, PeerInfo,
 };
+pub use policy_bundle::reconcile_policy_bundle;
 pub use pruning_reconciler::{reconcile_pruning, update_pruning_status};
 pub use pss::{
     ensure_namespace_pss_labels, restricted_container_security_context,

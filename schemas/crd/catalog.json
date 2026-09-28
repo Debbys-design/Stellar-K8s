@@ -67,6 +67,12 @@
       "apiVersion": "stellar.org/v1alpha1"
     },
     {
+      "file": "StellarPolicyBundle-stellar.org-v1alpha1.json",
+      "source": "config/crd/stellarpolicybundle-crd.yaml",
+      "kind": "StellarPolicyBundle",
+      "apiVersion": "stellar.org/v1alpha1"
+    },
+    {
       "file": "StellarSecurityPolicy-stellar.org-v1alpha1.json",
       "source": "config/crd/stellarsecuritypolicy-crd.yaml",
       "kind": "StellarSecurityPolicy",
