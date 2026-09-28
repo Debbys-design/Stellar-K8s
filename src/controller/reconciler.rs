@@ -79,12 +79,12 @@ use super::finalizers::STELLAR_NODE_FINALIZER;
 use super::health;
 use super::kms_secret;
 use super::label_propagation::LabelPropagator;
+use super::ledger_migration;
 use super::maintenance;
 #[cfg(feature = "metrics")]
 use super::metrics;
 use super::mtls;
 use super::oci_snapshot;
-use super::ledger_migration;
 use super::operator_config::{hardcoded_defaults, OperatorConfig};
 use super::peer_connectivity;
 use super::peer_discovery;
@@ -476,6 +476,16 @@ pub async fn run_controller(state: Arc<ControllerState>) -> Result<()> {
             maintenance::run_maintenance_plan_controller(plan_client, plan_reporter).await
         {
             error!("MaintenancePlan controller stopped with error: {}", e);
+    // Preemptive migration for scheduled-node-group / spot interruption signals (#1484).
+    let preemptive = Arc::new(
+        super::preemptive_spot_migration::PreemptiveSpotMigrator::new(
+            client.clone(),
+            state.event_reporter.clone(),
+        ),
+    );
+    tokio::spawn(async move {
+        if let Err(e) = preemptive.run().await {
+            error!("Preemptive spot migrator stopped with error: {}", e);
         }
     });
 
