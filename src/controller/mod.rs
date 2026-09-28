@@ -74,6 +74,7 @@ pub mod gitops_upgrade;
 pub mod horizon_cache;
 pub mod horizon_metrics_collector;
 pub mod horizon_scaler;
+pub mod job_orphan_reconciler;
 pub mod jurisdiction;
 pub mod label_propagation;
 pub mod maintenance;
@@ -244,6 +245,11 @@ pub use gitops_upgrade::{
     ProtocolUpgradeTimeline,
 };
 pub use health::{check_node_health, HealthCheckResult};
+pub use job_orphan_reconciler::{
+    classify_job, classify_pod, plan_reclaim, reconcile_job_retention, ArtifactId, ArtifactKind,
+    Classification, ClusterView, JobObservation, JobPhase, OrphanClass, OwnerRefSnapshot,
+    PodObservation, PodPhase, ReclaimAction, ReclaimOutcome, ReclaimPlan, ReclaimTarget,
+};
 pub use jurisdiction::{
     build_jurisdiction_node_affinity, compliance_report, merge_jurisdiction_tolerations,
     ComplianceReportEntry,
