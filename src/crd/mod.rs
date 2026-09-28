@@ -87,6 +87,7 @@ pub mod stellar_topology;
 pub mod stellar_upgrade;
 pub mod tenant;
 pub mod traffic_policy;
+pub mod traffic_shift_plan;
 pub mod types;
 pub use tenant::{
     TenantBillingSpec, TenantCondition, TenantNetworkIsolation, TenantQuotaHard, TenantSpec,
@@ -206,6 +207,12 @@ pub use traffic_policy::{
 pub use progressive_delivery::{
     GateResult, ProgressiveDelivery, ProgressiveDeliverySpec, ProgressiveDeliveryStatus,
     PromotionPhase, SloGate, TrafficSplit, WeightProgression,
+};
+pub use traffic_shift_plan::{
+    AppliedGate, FailbackPolicy, FailoverTargets, FailoverTrigger, GateDecision, HealthGateSpec,
+    RegionHealthEvidence, RegionTarget, RoutingRecordSpec, RpoEvidence, RtoMeasurement,
+    ShiftDirection, ShiftPolicy, ShiftStepStatus, StepOutcome, TrafficShiftPhase, TrafficShiftPlan,
+    TrafficShiftPlanSpec, TrafficShiftPlanStatus, TrafficWeights,
 };
 pub use types::*;
 

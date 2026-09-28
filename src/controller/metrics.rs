@@ -27,6 +27,9 @@
 //! - `stellar_node_active_connections` (gauge): active peer connections labeled by namespace/name/node_type/network/hardware_generation.
 //! - `stellar_horizon_request_error_ratio` (gauge): ratio (0.0-1.0) of Horizon API requests returning 4xx/5xx, labeled by namespace/name/node_type/network/hardware_generation.
 //! - `stellar_horizon_db_query_duration_seconds` (gauge): average Horizon database query duration in seconds, labeled by namespace/name/node_type/network/hardware_generation.
+//! - `stellar_traffic_shift_phase` (gauge): phase of a health-gated multi-region traffic shift plan (0=Idle, 1=Gated, 2=Draining, 3=Shifting, 4=Soaking, 5=Completed, 6=Aborted, 7=Failed).
+//! - `stellar_traffic_shift_primary_weight_percent` (gauge): share of traffic still served by the primary region (0-100).
+//! - `stellar_traffic_shift_rto_seconds` (gauge): measured recovery time of the last completed traffic shift, in seconds.
 //! - `stellar_job_orphans_reclaimed_total` (counter): reclaimed Job/Pod artifacts labeled by namespace/kind/orphan class.
 //! - `stellar_job_orphan_pods_outstanding` (gauge): orphaned Job pods still pending after a sweep, labeled by namespace.
 
@@ -369,6 +372,28 @@ pub static DR_DRILL_EXECUTIONS_TOTAL: Lazy<Family<DRDrillLabels, Counter<u64, At
 pub static DR_DRILL_TIME_TO_RECOVERY_MS: Lazy<Family<DRDrillLabels, Gauge<i64, AtomicI64>>> =
     Lazy::new(Family::default);
 
+/// Labels for health-gated multi-region traffic shift metrics.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct TrafficShiftLabels {
+    pub namespace: String,
+    pub name: String,
+    /// "failover" or "failback".
+    pub direction: String,
+}
+
+/// Gauge of the current phase of a traffic shift plan, as the phase enum value.
+pub static TRAFFIC_SHIFT_PHASE: Lazy<Family<TrafficShiftLabels, Gauge<i64, AtomicI64>>> =
+    Lazy::new(Family::default);
+
+/// Gauge of the primary region's share of traffic, in percent (0-100).
+pub static TRAFFIC_SHIFT_PRIMARY_WEIGHT_PERCENT: Lazy<
+    Family<TrafficNodeLabels, Gauge<i64, AtomicI64>>,
+> = Lazy::new(Family::default);
+
+/// Gauge of the measured RTO of the last completed shift, in seconds.
+pub static TRAFFIC_SHIFT_RTO_SECONDS: Lazy<Family<TrafficShiftLabels, Gauge<i64, AtomicI64>>> =
+    Lazy::new(Family::default);
+
 /// Labels for traffic shaping metrics.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct TrafficRequestLabels {
@@ -633,6 +658,23 @@ pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
         "stellar_dr_drill_time_to_recovery_ms",
         "Time to Recovery (TTR) for DR drills in milliseconds",
         DR_DRILL_TIME_TO_RECOVERY_MS.clone(),
+    );
+
+    // Register health-gated multi-region traffic shift metrics
+    registry.register(
+        "stellar_traffic_shift_phase",
+        "Phase of the health-gated traffic shift plan (0=Idle, 1=Gated, 2=Draining, 3=Shifting, 4=Soaking, 5=Completed, 6=Aborted, 7=Failed)",
+        TRAFFIC_SHIFT_PHASE.clone(),
+    );
+    registry.register(
+        "stellar_traffic_shift_primary_weight_percent",
+        "Share of traffic still served by the primary region, in percent (0-100)",
+        TRAFFIC_SHIFT_PRIMARY_WEIGHT_PERCENT.clone(),
+    );
+    registry.register(
+        "stellar_traffic_shift_rto_seconds",
+        "Measured recovery time of the last completed traffic shift, in seconds",
+        TRAFFIC_SHIFT_RTO_SECONDS.clone(),
     );
 
     // Register PVC disk scaling metrics
@@ -1555,6 +1597,57 @@ pub fn observe_dr_drill_execution(
         .get_or_create(&labels)
         .observe(execution_time_ms);
     DR_DRILL_EXECUTIONS_TOTAL.get_or_create(&labels).inc();
+}
+
+/// Set the current phase of a health-gated traffic shift plan.
+///
+/// Phase values mirror `TrafficShiftPhase`: Idle=0, Gated=1, Draining=2,
+/// Shifting=3, Soaking=4, Completed=5, Aborted=6, Failed=7.
+pub fn set_traffic_shift_phase(
+    namespace: &str,
+    name: &str,
+    direction: &str,
+    phase: crate::crd::TrafficShiftPhase,
+) {
+    let labels = TrafficShiftLabels {
+        namespace: namespace.to_string(),
+        name: name.to_string(),
+        direction: direction.to_string(),
+    };
+    let value = match phase {
+        crate::crd::TrafficShiftPhase::Idle => 0,
+        crate::crd::TrafficShiftPhase::Gated => 1,
+        crate::crd::TrafficShiftPhase::Draining => 2,
+        crate::crd::TrafficShiftPhase::Shifting => 3,
+        crate::crd::TrafficShiftPhase::Soaking => 4,
+        crate::crd::TrafficShiftPhase::Completed => 5,
+        crate::crd::TrafficShiftPhase::Aborted => 6,
+        crate::crd::TrafficShiftPhase::Failed => 7,
+    };
+    TRAFFIC_SHIFT_PHASE.get_or_create(&labels).set(value);
+}
+
+/// Set the share of traffic still served by the primary region, in percent.
+pub fn set_traffic_shift_primary_weight(namespace: &str, name: &str, primary_percent: u32) {
+    let labels = TrafficNodeLabels {
+        namespace: namespace.to_string(),
+        name: name.to_string(),
+    };
+    TRAFFIC_SHIFT_PRIMARY_WEIGHT_PERCENT
+        .get_or_create(&labels)
+        .set(i64::from(primary_percent));
+}
+
+/// Set the measured recovery time of the last completed traffic shift.
+pub fn set_traffic_shift_rto_seconds(namespace: &str, name: &str, direction: &str, seconds: i64) {
+    let labels = TrafficShiftLabels {
+        namespace: namespace.to_string(),
+        name: name.to_string(),
+        direction: direction.to_string(),
+    };
+    TRAFFIC_SHIFT_RTO_SECONDS
+        .get_or_create(&labels)
+        .set(seconds);
 }
 
 /// Set the Time to Recovery (TTR) for a DR drill

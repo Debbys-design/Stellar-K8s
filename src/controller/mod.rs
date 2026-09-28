@@ -171,6 +171,9 @@ pub(crate) mod sync_state_monitor;
 pub mod tenant_reconciler;
 pub mod topology;
 pub mod traffic;
+pub mod traffic_shift;
+#[cfg(test)]
+mod traffic_shift_test;
 #[cfg(test)]
 mod traffic_test;
 pub mod volume_resizer;
