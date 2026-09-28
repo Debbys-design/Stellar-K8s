@@ -3,6 +3,585 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+## Chart v2.10.1 (2026-09-28) [patch]
+
+• Merge pull request #1548 from itsnotOJ/fix/cleanup-935-936-934
+🐛 fix: normalize Makefile targets, audit third-party licenses, and add integration test teardown
+• Merge upstream/main into fix/cleanup-935-936-934
+• Resolve conflicts in 11 files:
+• - Makefile: take upstream's target set (doc-check/stale-docs targets,
+•   security-fix, security-check and test-repo-health were removed upstream
+•   along with the binaries/scripts they call), and keep the PR's additions
+•   that are still valid: docs-lint in ci-local, the fixed help awk FS, the
+•   pre-commit-install alias, run/run-local normalization, and a docker-multiarch
+•   that builds locally with buildx (upstream's `gh workflow run release.yml`
+•   cannot work - release.yml has no workflow_dispatch trigger).
+• - Deleted docs: accept upstream's removal of CLEANUP_STATUS.md,
+•   DEPENDENCY_SECURITY_AUDIT.md and docs/stale-docs-detector.md; drop the
+•   dangling SECURITY.md link and the two stale CI-target bullets the PR added
+•   to docs/development/makefile-refactoring.md.
+• - Cargo.toml: anyhow = "1.0.104" (exactly matches Cargo.lock), bytes =
+•   "1.11.1" (upstream's floor, satisfied by lock 1.12.1).
+• - tests/backup_restore_smoke_test.rs: upstream's Apache license header plus
+•   the PR's module docs; tests/cli_examples_test.rs: single top-level
+•   `use assert_cmd::Command` (the mid-file copy would be a duplicate import).
+• - CONTRIBUTING.md / DEVELOPMENT.md / CONVENTIONS.md / SECURITY.md: merge both
+•   sides - upstream's command lists and conventions, PR's docs-lint detail,
+•   install-crd fix and teardown conventions.
+• Signed-off-by: itsnotOJ <isnotoj1@gmail.com>
+📝 docs: record cleanup status for issues 934, 935 and 936
+• Documents what was changed, what was verified by inspection, and what was
+• deliberately left undone, including the tests/e2e_kind.rs cluster leak and the
+• undisclosed rdkafka/sasl2-sys/async-nats licenses.
+• Signed-off-by: itsnotOJ <isnotoj1@gmail.com>
+📝 test: add integration test teardown and repair uncompilable test files
+• Partial progress on #934.
+• Two test files could not compile. Both had content appended inside an
+• unclosed function body, with a duplicated file header. "use" statements are
+• not legal inside a function, so both were hard syntax errors:
+• - tests/backup_restore_smoke_test.rs: fn stellar_operator() was never closed
+•   and a second copy of the file header sat inside its body. Removed the dead
+•   helper, the duplicated header, and three unused imports (std::fs, PathBuf,
+•   TempDir). This target is invoked by ci.yml, so it was failing CI.
+• - tests/cli_examples_test.rs: fn invalid_command_fails() was never closed and
+•   "use assert_cmd::Command;" was stranded at column 0 inside its body. Closed
+•   the function and moved the import to the top import block.
+• Destructive side effects removed from ordinary cargo test:
+• Four unit tests in tests/common/mod.rs built RAII guards to assert their
+• fields and then let them Drop. Because every guard's Drop shells out to
+• "kubectl delete", plain cargo test was deleting namespaces, StellarNode CRs
+• and ConfigMaps from whatever cluster the developer's kubeconfig pointed at.
+• Each test now ends with std::mem::forget, which suppresses the destructor. No
+• guard API changed, so the E2E tests that depend on them are unaffected.
+• Missing teardown primitive added:
+• ensure_kind_cluster had no counterpart, so every KinD-backed test leaked a
+• Docker container, network and volumes. Added to tests/common/mod.rs:
+• - ClusterGuard: RAII guard owning a cluster for the life of a test, honouring
+•   SKIP_TEARDOWN=1. That variable previously only suppressed inline teardown in
+•   one file while leaving NamespaceGuard drops active, an inconsistent contract.
+• - A private delete_kind_cluster helper, private on purpose so teardown goes
+•   through the guard and also runs on panic.
+• ClusterGuard wired in:
+• - tests/quickstart_smoke_test.rs: all three tests called delete_kind_cluster
+•   inline at the end of the body, so any failing assert! or wait_for_* leaked
+•   the cluster. Replaced with a function-scoped guard and removed the now-unused
+•   local delete_kind_cluster and skip_teardown helpers. The guard is bound to
+•   the function scope, not the inner if block, so it is not dropped
+•   immediately after creation.
+• - tests/dr_failover_e2e.rs: guard registered immediately after cluster
+•   creation so DrCleanup (namespaces and CRs) drops first and the cluster last.
+• CONVENTIONS.md now documents ClusterGuard as mandatory, with correct and
+• incorrect guard-scoping patterns and the mem::forget rule for unit-testing
+• guards. It also carries the one-line operational-script example fix from #935.
+• Known remaining leaks are listed in CLEANUP_STATUS.md and include
+• tests/e2e_kind.rs, which still uses five copy-pasted local guard types and
+• never deletes its cluster, and the chaos/soak workflows, which create KinD
+• clusters with no teardown step.
+• Signed-off-by: itsnotOJ <isnotoj1@gmail.com>
+📝 docs(licenses): correct third-party license audit findings
+• Partial progress on #936. Scoped to non-breaking corrections.
+• THIRD_PARTY_LICENSES.md is gated in CI by a byte-exact diff
+• (make check-third-party-licenses) and the generator needs cargo-license, which
+• is not available in the authoring environment. The generator was therefore
+• deliberately NOT modified: changing it without regenerating the file would
+• turn the gate red. The findings are documented instead.
+• Corrected factual errors in DEPENDENCY_SECURITY_AUDIT.md:
+• - The "23 known advisories" figure was wrong in three places. There is no single
+•   list. The four ignore lists hold 20 (deny.toml), 26 (.cargo/audit.toml),
+•   18 (ci.yml) and 15 (dependency-review.yml) entries. Replaced with the
+•   measured table.
+• - "anyhow 1.0.103 / bytes 1.11.1" was presented as version pinning for security
+•   fixes. anyhow was in fact pinned to a non-existent 1.0.108 that broke
+•   resolution outright; that is fixed in the preceding commit.
+• - rustls-webpki was listed as two versions. The lock contains three
+•   (0.101.7, 0.102.8, 0.103.13), and the stated target of >=0.103.12 is already
+•   met by one of them.
+• - rand 0.9.2 was stale; the lock has 0.8.6 and 0.9.4.
+• - "Explicit handling of copyleft licenses" was not substantiated. Replaced with
+•   an accurate note that ittapi and r-efi are permitted only because a
+•   permissive OR branch is allowlisted.
+• deny.toml, two false claims removed:
+• - It asserted it was "in sync with .cargo/audit.toml" (it is missing 6
+•   entries) and "in sync with the workflow cargo-audit --ignore lists"
+•   (13 entries missing, and 5 appear only in CI). Replaced with the measured
+•   divergence.
+• - Flagged the pqcrypto ignores (RUSTSEC-2024-0380/-0381) as dead: no pqcrypto
+•   package exists in Cargo.toml or Cargo.lock, so their "experimental pqcrypto
+•   KMS path" justification describes a component that is not present.
+• New "Open Gaps" section documents seven unresolved items with evidence. The
+• most significant: rdkafka, sasl2-sys and async-nats are compiled by CI
+• (.pre-commit-config.yaml runs cargo clippy and cargo test with
+• --all-features) but are absent from the license file, because the generator
+• pins a narrower feature set than what is actually built.
+• Deliberately NOT changed: no deny.toml license exceptions were added. None are
+• needed. cargo-deny satisfies an expression when any branch of an OR is
+• allowlisted, so MIT OR Unlicense, BSD-3-Clause OR GPL-2.0 and
+• Apache-2.0 OR BSL-1.0 already pass. Adding exceptions would be incorrect.
+• Signed-off-by: itsnotOJ <isnotoj1@gmail.com>
+🐛 fix(makefile): normalize targets, remove deprecated and broken ones
+• Fixes #935
+• Bugs fixed:
+• - docs-lint was defined twice with byte-identical recipes. GNU make silently
+•   overrode the first and printed an "overriding recipe" warning on every
+•   invocation, and make help listed the target twice.
+• - make help used a non-portable awk field separator (FS = ":.*?## "). The lazy
+•   quantifier is a GNU extension; under mawk (the Debian/Ubuntu default) and
+•   BSD awk it is a literal, so the separator never matched and the entire
+•   "All available targets" list silently vanished. Switched to the portable
+•   form; verified no help text contains a second "## " so greedy-vs-lazy
+•   splitting is equivalent.
+• - make run-local ran the bare binary, but Args.command is a required clap
+•   subcommand, so it exited with a usage error. run-local now passes "run" and
+•   make run is a true alias, matching its own help text.
+• - make docker-multiarch dispatched "gh workflow run multiarch-build.yml", but
+•   that workflow does not exist in .github/workflows/, so the target could never
+•   succeed. Replaced with a real local buildx build, which also matches what
+•   DEVELOPMENT.md already claimed the target did. The phantom reference is
+•   corrected in CI_COMMANDS.md and release.yml (the container job in release.yml
+•   is the real multi-arch publisher).
+• - soak-test.yml ran "bash scripts/soak-test.sh", but that file only existed at
+•   scripts/archive/soak-test.sh. It is an operational script, not a one-off
+•   bootstrap script, so the archive was the wrong home. Restored with git mv;
+•   it has no self-relative path references, so the move is safe.
+• Normalization:
+• - Removed three duplicated recipe bodies: pre-commit-install and
+•   dev-setup-hooks were byte-identical, and validate duplicated health-fast.
+•   Both are now prerequisite-based aliases.
+• - security-fix was documented as "Apply automated security fixes" but only ran
+•   cargo update --dry-run and changed nothing. Help text corrected.
+• - Added targets for things that were documented or referenced but unreachable:
+•   list-doc-coverage (documented twice, target absent, wired to the existing
+•   "doc-check list" subcommand), security-check (orphan script with no entry
+•   point) and test-repo-health (a bats suite nothing ever ran).
+• Docs synced:
+• - CONTRIBUTING.md: "make install" -> "make install-crd" (no install target
+•   exists); ci-local description now includes docs-lint.
+• - docs/developer-onboarding/index.md: "make deploy" -> "make quickstart-deploy"
+•   (no deploy target exists).
+• - docs/stale-docs-detector.md: check-stale-docs is --warn-only and exits 0; the
+•   strict gate is docs-check-strict; removed the false claim that these targets
+•   are wired into ci-local.
+• - SECURITY.md: replaced raw cargo deny/audit/outdated and the bare script path
+•   with the canonical make targets.
+• - makefile-refactoring.md: updated the CI target list to the targets actually
+•   invoked by .github/workflows/*.yml.
+• Note: the one-line CONVENTIONS.md operational-script example fix belongs to
+• this issue but is committed with the test-teardown commit, to keep the change
+• atomic per file.
+• Verified: all 80 .PHONY entries have a target definition, a recipe and help
+• text; zero duplicate target definitions; no space-indented recipe lines; all
+• script references in the Makefile and in every workflow resolve.
+• Signed-off-by: itsnotOJ <isnotoj1@gmail.com>
+🐛 fix(deps): repin anyhow and bytes to resolvable versions
+• Cargo.toml pinned two versions that do not exist, so dependency
+• resolution failed and the workspace would not build at all:
+• - anyhow was pinned to 1.0.108; the latest published patch is 1.0.104
+• - bytes was pinned to 1.14.0 while Cargo.lock held 1.11.1
+• Both carried comments claiming to be the latest patch with security
+• fixes. Repinned to resolvable versions and corrected the misleading
+• comments. This Cargo.toml/Cargo.lock desync is also tracked under #936.
+• Signed-off-by: itsnotOJ <isnotoj1@gmail.com>
+
+
+## Chart v2.10.0 (2026-09-27) [minor]
+
+• Merge pull request #1596 from NanaKhadija1980j/fix/1517-versioned-policy-as-code-promotion-pipeline-from-dev-to-prod
+• [1517] [EPIC] Versioned Policy-as-Code Promotion Pipeline from Dev to Prod
+✨ feat(policy): versioned policy-as-code promotion pipeline (#1517)
+• Policy changes were applied by editing YAML per environment by hand, so dev,
+• staging and prod drifted and bad rules surfaced only in production. Model
+• promotion as an artifact promotion flow instead.
+• - Immutable, versioned bundles: PolicyBundle is content addressed over its
+•   version and rules; is_intact() detects mutation and promote() refuses a
+•   bundle edited after creation, so what staging validated is what prod gets.
+• - Dry-run impact analysis: analyze_impact() evaluates a bundle against a
+•   PolicyInventory per environment. It is pure and side-effect free, so CI can
+•   run it on every change. An overbroad rule is blocked before enforcement.
+• - Staged enforcement: every environment starts at Audit and advances exactly
+•   one step per call (audit -> warn -> enforce), tracked per environment.
+• - One-command rollback: rollback() restores the previous bundle in all
+•   environments, resets enforcement to Audit, and reports the duration
+•   against ROLLBACK_SLA_MS (60s).
+• Promotion follows the dev -> staging -> production order and refuses to skip
+• a link in the chain.
+
+
+## Chart v2.9.0 (2026-09-27) [minor]
+
+• Merge pull request #1594 from NanaKhadija1980j/fix/1519-progressive-config-rollout-with-canary-evaluation-for-operator-settings
+• [1519] [EPIC] Progressive Config Rollout with Canary Evaluation for Operator Settings
+• Merge pull request #1593 from NanaKhadija1980j/fix/1520-automated-dependency-upgrade-validation-with-contract-tests
+• [1520] [EPIC] Automated Dependency Upgrade Validation with Contract Tests
+✨ feat(config): progressive config rollout with canary evaluation (#1519)
+• Operator configuration used to be applied to every StellarNode at once, so a
+• single bad setting took the whole fleet down. This reuses progressive-delivery
+• machinery for configuration:
+• - Canary first: select_canary() picks a deterministic subset whose size never
+•   exceeds MAX_BLAST_RADIUS (5%) of the target set, spread across namespaces by
+•   an even stride over the sorted target list.
+• - Gates during the canary window: HealthGate/HealthSample evaluate the
+•   canary. Passed promotes to Propagating, Failed or Incomplete never does.
+• - Automatic rollback: gate_or_rollback() restores the previous bundle on gate
+•   failure and records the measured duration against ROLLBACK_SLA_MS (30s).
+• - Queryable versions: every target records the ConfigBundle version and digest
+•   it is running, so 'which config is this node on?' is always answerable.
+• - Stage machine (Idle -> Canary -> Propagating -> Complete, plus RolledBack)
+•   guarantees no config change propagates without a gate pass.
+• Merge origin/main into fix/1520-automated-dependency-upgrade-validation-with-contract-tests
+🐛 fix(license): repair license headers with an import spliced into them
+• Ten source files had use std::collections::BTreeMap; inserted as line 2,
+• inside the Apache-2.0 header block and before the module's inner doc
+• comment, which makes the inner doc comment a syntax error (E0753) and the
+• whole crate fail to build. Move the import into the import block.
+✨ feat(deps): automated dependency upgrade validation with generated contract tests (#1520)
+• Replaces manual dependency upgrade reviews with a mechanical merge gate:
+• - Contract test generation from existing consumer call sites, so the suite
+•   tracks real usage without dedicated authoring effort.
+• - Compatibility matrix auto-constructed from the generated suite.
+• - Incompatible upgrades are blocked with consumer attribution (consumer name
+•   plus the file:line call sites responsible).
+• - Approved upgrades carry a signed validation artifact (suite digest,
+•   matrix digest, SHA-256 signature).
+
+
+## Chart v2.8.0 (2026-09-27) [minor]
+
+• Merge pull request #1592 from Otaiki1/prmaster/1567-1568-1566-1569-4-issues-1567-1568-1566-1569-85543a
+• 4 issues: #1567, #1568, #1566, #1569
+• Merge pull request #1591 from ReinaMaze/feature/observability-infrastructure-epics
+✨ feat: add observability and infrastructure platform epic specs
+• Merge pull request #1590 from iheomadev/webhook-ledger-close-delivery
+✨ feat(webhook): implement LedgerCloseWebhook CRD and dispatcher (#1577)
+• Merge branch 'main' into webhook-ledger-close-delivery
+• Merge pull request #1589 from mathstickz/feat/Remediation
+• feat :Policy Drift Remediation Loop for Security Baseline Violations
+• Merge pull request #1588 from meetdarc-tech/feature/1574-ledger-migration-1575-asset-monitoring
+✨ feat: add ledger migration and SAC monitoring
+• Merge pull request #1587 from CollinsC1O/modes
+✨ feat: implement Graceful Degradation Modes for Partial Control-Plane Outage
+• Merge branch 'main' into modes
+• Merge pull request #1585 from CollinsC1O/Forecasting
+✨ feat: implement Capacity Forecasting Engine with Quarterly Scaling Re…
+• Merge pull request #1584 from itsnotOJ/fix/1502-epic-real-time-schema-registry-for-all-internal-service-apis
+• [#1502] [EPIC] Real-Time Schema Registry for All Internal Service APIs
+• Merge branch 'main' into fix/1502-epic-real-time-schema-registry-for-all-internal-service-apis
+• Merge pull request #1550 from itsnotOJ/fix/1501-epic-declarative-webhook-certificate-management-with-zero-trust-renewal
+• [#1501] [EPIC] Declarative Webhook Certificate Management with Zero-Trust Renewal
+• Merge pull request #1549 from olalois/feat/interservice-mtls-ci-benchmarks
+• Add inter-service mTLS and harden validation benchmarks
+• Work on #1567: [EPIC] SDF Testnet Compliance Validation
+• Closes #1567
+✨ feat: add observability and infrastructure platform epic specs
+• - Epic 1: Alert Correlation & Incident Management
+•   - Deduplicate and correlate alerts from multiple sources
+•   - Root cause analysis with symptom suppression
+•   - Unified incident timelines with auto-lifecycle management
+•   - Target: 60% alert reduction, 40% faster time-to-incident
+• - Epic 2: Distributed Tracing for Async Message Queues
+•   - W3C trace context propagation through Kafka, NATS, webhooks
+•   - Zero-config SDK shims preserving existing APIs
+•   - Broken chain detection and metrics
+•   - Target: 95% trace stitch rate, <200 byte overhead
+• - Epic 3: Declarative Backup Plans with PITR
+•   - BackupPlan CRs with RPO-based scheduling
+•   - Point-in-time recovery for PostgreSQL, MySQL, MongoDB
+•   - Mandatory restore verification before completion
+•   - Cross-region replication with checksum validation
+•   - Target: 100% verification pass rate, RPO achievement for 30 days
+• - Epic 4: GitOps Drift Detection & Auto-Revert
+•   - Three-way diff (base/live/git) with server-side-default filtering
+•   - Classify drift: manual mutations vs. pending propagation
+•   - Auto-revert with rollback safety checks
+•   - Actor attribution from audit logs
+•   - Target: 60s detection, zero false positives, 95% attribution
+• All specs include detailed requirements, technical design, CRDs,
+• metrics, and acceptance criteria.
+✨ feat(webhook): implement LedgerCloseWebhook CRD and dispatcher (#1577)
+• Add at-least-once webhook delivery for Stellar ledger-close events.
+• Changes:
+• - src/crd/ledger_close_webhook.rs: LedgerCloseWebhook CRD with typed spec,
+•   status subresource, delivery log ring-buffer (20 entries), and
+•   LedgerClosePayload struct for the JSON body.
+• - src/controller/ledger_close_dispatcher.rs: Dispatcher with per-subscription
+•   ordered delivery workers, exponential back-off retry (1s→2s→4s→8s→16s,
+•   max 5 retries), HMAC-SHA256 payload signing (X-Stellar-Signature header),
+•   and Kubernetes status patching after each delivery attempt.
+• - config/crd/ledgerclosehook-crd.yaml: OpenAPI v3 schema for the CRD.
+• - config/samples/ledger-close-webhook-example.yaml: Ready-to-use sample.
+• - src/crd/mod.rs, src/controller/mod.rs: Register new modules and re-exports.
+• Acceptance criteria met:
+• - Webhook delivered within 5 s of ledger close (poll loop + immediate dispatch)
+• - Retry with exponential backoff on failure (max 5 attempts)
+• - Delivery order preserved per subscription (per-hook channel worker)
+• - HMAC signature verifiable by consumer (X-Stellar-Signature: sha256=<hex>)
+• Closes #1577
+• feat :Policy Drift Remediation Loop for Security Baseline Violations
+✨ feat: add ledger migration and asset monitoring
+✨ feat: implement Graceful Degradation Modes for Partial Control-Plane Outage
+✨ feat: implement Capacity Forecasting Engine with Quarterly Scaling Recommendations
+✨ feat(schema): consumer-aware versioned schema registry with a PR compatibility gate
+• - central registry snapshot covering every internal API subject, committed as
+•   schemas/registry.json and enforced at build time by build.rs
+• - deeper compatibility engine: nested objects, type changes, enum removals and
+•   a dependency-free protobuf declaration check, across backward/forward/full
+• - atomic registration that checks the subject policy, every pinned consumer and
+•   an audited one-shot override before mutating state
+• - explicit registry override required for any breaking change
+• - generated clients are pinned to exact schema versions; floating refs rejected
+• - consumer impact report attached to every registered version
+• - new schema-compat CLI subcommand gates a proposed schema against all
+•   consumers and emits the impact report
+• - new InternalApiSchema CRD repeats the pin and enforcement policy at deploy
+•   time, plus sample manifest, CRD YAML and design doc
+✨ feat(webhook): declarative cert-manager TLS lifecycle with fail-closed cert health
+• - render a bootstrap Issuer, a CA Certificate, a CA-backed Issuer and a
+•   continuously renewed serving Certificate for the admission webhook
+• - distribute the CA to every apiserver via cert-manager cainjector and
+•   pin failurePolicy: Fail so TLS/trust errors never bypass admission
+• - serve TLS with rustls through axum-server, reloading the mounted Secret
+•   on rotation after draining in-flight connections
+• - validate the serving identity before binding and fail closed otherwise
+• - add a stellar-cert-health sidecar that pre-validates chain, validity, SAN
+•   and EKU offline, gates readiness, and exports expiry-horizon metrics
+• - alert at 25% and 10% of certificate lifetime remaining
+• - reject --cert-path without --key-path at startup
+✨ feat(security): add mesh mTLS and benchmark gates
+• Signed-off-by: olalois <142523986+olalois@users.noreply.github.com>
+
+
+## Chart v2.7.0 (2026-09-27) [minor]
+
+• Merge pull request #1586 from emperorsixpacks/main
+✨ feat: compliance reporting, validator scoring, partition response, an…
+✨ feat: compliance reporting, validator scoring, partition response, and multisig coordination
+• Implements comprehensive solutions for 4 major operator capabilities:
+• 1. Compliance Reporting for Regulated Validators (#1581)
+• - Added ComplianceReport Custom Resource Definition (compliance.stellar.org/v1alpha1)
+•   supporting automated periodic audits on configurable daily/weekly/cron schedules.
+• - Implemented RegulatoryReportGenerator in src/compliance/regulatory_report.rs to collect
+•   operational metrics, uptime evidence against regulatory SLAs, key custody attestation
+•   (HSM/KMS hardware backing and policy verification), and SCP ledger close metrics.
+• - Built export engines for signed canonical JSON envelopes and auditor-ready PDF reports
+•   using printpdf with digital attestation stamps and SHA-256 checksums.
+• - Created ComplianceReportController to manage scheduled evidence collection and persist
+•   artifacts as Kubernetes ConfigMaps or object storage references.
+• - Closes #1581
+• 2. Validator Performance Scoring and Leaderboard (#1579)
+• - Added ValidatorScore and ValidatorLeaderboard CRDs (stellar.org/v1alpha1) for automated
+•   hourly validator performance grading and multi-cluster federation aggregation.
+• - Implemented ValidatorScoringEngine in src/controller/validator_scoring.rs computing:
+•   * Uptime availability scores from /info polling (>99% = A, 95-99% = B, 90-95% = C, <90% = F)
+•   * Consensus participation rate from SCP nomination and ballot close metrics
+•   * History archive checkpoint continuity and completeness scores
+•   * Weighted composite performance score and letter grade (A+, A, B, C, D, F)
+•   * Rolling 24-hour evaluation history
+• - Added `kubectl stellar leaderboard` CLI command in kubectl_plugin.rs displaying
+•   ranked validator performance tables.
+• - Exposed GET /api/v1/validators/leaderboard in operator REST API.
+• - Closes #1579
+• 3. Incident Response Automation for Network Partitions (#1580)
+• - Added Incident Custom Resource Definition (incident.stellar.org/v1alpha1) for declarative
+•   network and consensus incident lifecycle management.
+• - Implemented PartitionIncidentDetector in src/incident/partition_detector.rs:
+•   * Detects network partitions within 3 consecutive missed ledger closes (~15 seconds)
+•   * Auto-dispatches emergency alerts to Slack, Webhook, and PagerDuty within 30s SLA
+•   * Automatically populates Incident CR status with chronological diagnostic timelines
+•   * Analyzes quorum health and computes safety-verified quorum adjustment recommendations
+•     (adjusted validator sets and new Byzantine fault-tolerant thresholds).
+• - Closes #1580
+• 4. Multi-Signature Coordination for Administrative Operations (#1578)
+• - Added MultiSigOperation Custom Resource Definition (stellar.org/v1alpha1) coordinating
+•   M-of-N signature collection for administrative operations (settings upgrades, signer changes).
+• - Implemented MultiSigController in src/controller/multisig_controller.rs:
+•   * Gathers cryptographic signatures by querying signer sidecars or secret stores
+•   * Enforces timeout deadlines and marks operations expired if threshold is unreached
+•   * Exposes real-time partial signature progress (collected signatures, missing signers)
+•   * Maintains an append-only audit trail recording actors, public keys, and timestamps
+•   * Automatically submits assembled transactions to the Stellar network upon reaching quorum.
+• - Closes #1578
+
+
+## Chart v2.6.0 (2026-09-26) [minor]
+
+• Merge pull request #1546 from kingksjo/feat/epics-1495-1498-platform-frameworks
+• Platform frameworks: hot-reload, secrets broker, rollback engine, data residency
+• Merge pull request #1547 from De-hunterJS/feat/k8s-compat-dataplane-snapshot-cert-automation-api-deprecation
+✨ feat: implement k8s-compat-matrix, dataplane-snapshots, cert-automati…
+✨ feat: implement k8s-compat-matrix, dataplane-snapshots, cert-automation, deprecated-api-detection
+• Adds four major automation features:
+• 1. Kubernetes Compatibility Matrix
+•    - Tests operator against 6 K8s versions (1.27-1.32, covering N and N-1)
+•    - Detects upstream pre-releases within 24h
+•    - Publishes matrix results as badge + JSON artifact
+•    - Completes full matrix in <60 minutes
+• 2. Dataplane Configuration Snapshots
+•    - New StellarConfigSnapshot CRD for versioned configs
+•    - Content-addressed by Merkle root (SHA-256)
+•    - Delta snapshots reduce bandwidth by >=80% for large configs
+•    - Agents perform atomic verify + swap (no partial state)
+• 3. Certificate Automation
+•    - Short-lived certs (<=24h) issued automatically
+•    - Hot-reload without process restart (inotify + atomic writes)
+•    - Revocation detection propagates in <60s cluster-wide
+•    - Certificate inventory visible as queryable CRs
+• 4. Deprecated API Usage Detection
+•    - End-to-end detection via audit logs + metrics
+•    - Attribution to owning team via namespace labels
+•    - Weekly migration reports (CSV, HTML, JSON)
+•    - Phase-based enforcement: warn -> deny without webhook restart
+• Acceptance Criteria Met:
+• ✓ K8s matrix covers N and N-1 minors (1.31, 1.32)
+• ✓ Snapshot generation <2s for 10k objects
+• ✓ Delta compression >= 80% bandwidth reduction
+• ✓ Cert rotation without request drops
+• ✓ API deprecation detection >= 99% accuracy
+• Files Added:
+• - tests/compat_matrix.rs (extended with 6 versions)
+• - .github/workflows/k8s-compat-matrix-advanced.yml
+• - config/crd/stellar_config_snapshot_crd.yaml
+• - src/crd/config_snapshot.rs
+• - src/controller/cert_automation.rs
+• - src/controller/api_deprecation_detector.rs
+• - docs/AUTOMATION_FEATURES.md
+• - scripts/ci/generate-badge.sh
+✨ feat: shared platform frameworks for #1498 hot-reload, #1497 secrets broker, #1496 rollback engine, #1495 data residency
+
+
+## Chart v2.5.0 (2026-09-26) [minor]
+
+• Merge pull request #1538 from broda-spendy/epic-1509-dynamic-rate-limiting
+✨ feat(fair-share): add dynamic rate limiting with per-consumer fair share (#1509)
+• Merge pull request #1537 from broda-spendy/epic-1510-node-boot-verification
+✨ feat(node-boot): add immutable infrastructure verification at node boot (#1510)
+✨ feat(fair-share): add dynamic rate limiting with per-consumer fair share (#1509)
+• - New air_share_rate_limiter module with token-bucket per consumer
+• - FairShareRateLimiter allocates capacity dynamically based on active consumers
+• - Configurable min/max share, burst multiplier, adaptive refill
+• - Jain's fairness index computation for monitoring
+• - Integration with existing RetryPolicyTuner for adaptive behavior
+• - Consumer identity (tenant, workload, API key hash)
+• - Prometheus metrics export scaffold
+• Partially addresses #1509 acceptance criteria:
+• - [ ] Noisy-consumer containment within 5s of saturation onset
+• - [ ] Well-behaved consumers see zero induced 429s
+• - [ ] Fair-share Jain index >= 0.9 under contention
+• - [ ] Limit config propagates in under 1s
+✨ feat(node-boot): add immutable infrastructure verification at node boot (#1510)
+• - New
+• ode_boot_verification module for pre-kubelet image integrity checks
+• - erify_node_boot() validates image digest, kernel, OS, SBOM (allowlist/denylist)
+• - Generates Kubernetes NodeCondition (BootVerified) for API visibility
+• - Systemd unit generator for Before=kubelet.service integration
+• - Cross-platform package detection (rpm/dpkg/apk)
+• - Extends existing ootstrap_verify for toolchain checks
+• - Target: <15s added boot time
+• Partially addresses #1510 acceptance criteria:
+• - [ ] Tampered node image prevented from joining
+• - [ ] Verification adds under 15s to node boot
+• - [ ] Node condition explains any refusal
+• - [ ] Expected-image changes rolled out via the same pipeline
+
+
+## Chart v2.4.0 (2026-09-26) [minor]
+
+• Merge pull request #1545 from m1s0g1/issue1474
+✨ feat: schema evolution framework
+✨ feat: schema evolution framework
+• Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>
+✨ feat: federation consistency protocol
+• Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>
+✨ feat: progressive delivery controller
+• Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>
+🐛 refactor: structured error handling
+• Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>
+
+
+## Chart v2.3.0 (2026-09-26) [minor]
+
+• Merge pull request #1535 from broda-spendy/epic-1512-index-sharding
+✨ feat(controller): add declarative index sharding for CRD informer caches (#1512)
+✨ feat(index-sharding): add declarative index sharding for CRD informer caches (#1512)
+• - New index_sharding module with consistent-hash based ShardRing
+• - ShardedIndex for partitioned informer cache with memory tracking
+• - Configurable shard count, shard key, and virtual nodes
+• - Rebalance operation moves O(1/N) keys on shard count change
+• - Unit tests for distribution, insertion, and rebalance
+• Partially addresses #1512 acceptance criteria:
+• - [ ] Cache memory under budget at 500k objects
+• - [ ] Rebalance causes no watch disconnects
+• - [ ] Lookup latency flat at 10x scale
+• - [ ] Shard strategy visible in CRD status
+
+
+## Chart v2.2.0 (2026-09-25) [minor]
+
+• Merge pull request #1536 from broda-spendy/epic-1511-cross-signal-anomaly
+✨ feat(controller): add cross-signal anomaly detection for deployments (#1511)
+✨ feat(cross-signal): add cross-signal anomaly detection for deployments (#1511)
+• - New cross_signal_anomaly module correlating deployment events with traffic metrics
+• - CrossSignalDetector joins deploy events to traffic metrics on time axis
+• - Change-point detection via Welch's t-test + EWMA adaptive baseline
+• - Configurable pre/post deploy windows, significance thresholds
+• - Outputs confidence score (0-1) calibrated per signal
+• - Unit tests for error-rate spike detection and stats computation
+• Partially addresses #1511 acceptance criteria:
+• - [ ] Detect seeded bad deploys with >= 90% recall
+• - [ ] False-positive flag rate below 5%
+• - [ ] Flag emitted within 10 minutes of deploy
+• - [ ] Confidence score calibrated against outcomes
+
+
+## Chart v2.1.1 (2026-09-25) [patch]
+
+• Merge pull request #1539 from orunganiekan/fix/1513-1514-1515-1516-approvals-cardinality-latency-remediation
+• [#1513, #1514, #1515, #1516] Implement multi-party approval, cardinality governance, latency tracking, and security baseline remediation
+• [#1513, #1514, #1515, #1516] Implement multi-party approval, cardinality governance, latency tracking, and security baseline remediation
+
+
+## Chart v2.1.0 (2026-09-25) [minor]
+
+• Merge pull request #1541 from trinnode/main
+✨ feat: structured feature-flags, migration gates, compliance evidence, connection draining
+📝 chore(helm): bump chart to v2.0.0 [skip ci]
+• Merge pull request #1 from trinnode/feat/epics-1505-1506-1507-1508
+✨ feat: structured feature-flags, migration gates, compliance evidence, connection draining
+✨ feat: implement epics #1505, #1506, #1507, #1508
+• Closes #1505: structured feature-flag evaluation with signed bundles
+• and targeting audit trail. Adds src/flag_bundle.rs providing:
+• - FlagBundle / SignedBundle with HMAC-SHA256 verification
+• - BundleStore with cached evaluation (off network hot path)
+• - KillSwitch evaluated before the bundle pipeline (works when
+•   delivery is down)
+• - EvaluationAudit with bounded append-only trail recording every
+•   user-affecting decision (flag, variant, subject)
+• Closes #1507: automated database migration safety gates in the
+• deploy pipeline. Adds src/migration_safety.rs providing:
+• - Gate::LockRisk, Gate::BackwardCompatibility, Gate::Rollback
+• - Pure-string analysis (no DB connection), gate runtime under 60s
+• - JUnit XML report via GateReport::to_junit_xml for existing PR checks
+• Closes #1506: compliance evidence collector for continuous control
+• verification. Adds src/compliance/evidence_schedule.rs providing:
+• - Declarative ControlProbe (config, not code)
+• - ScheduledCollector running due probes on a schedule
+• - Coverage completeness tracked with first-class CoverageFinding
+•   gaps
+• - Signed EvidencePackage validated offline via HMAC-SHA256
+• Closes #1508: graceful connection draining framework for rolling
+• updates. Adds src/connection_drain.rs providing:
+• - DrainController enforcing stop-intake → drain → exit order
+• - ConnectionGuard / StreamGuard RAII tracking in-flight work
+• - Bounded interruption for long-lived streams with graceful close
+• - DrainMetrics exposing per-deployment drain duration
+• - prestop_hook_yaml rendering the matching preStop template
+• Also fixes clippy 1.92 regressions in blue_green_core.rs,
+• tenant_reconciler.rs, and profiling.rs to restore CI parity.
+
+
+## Chart v2.0.0 (2026-09-25) [major]
+
+
+
+
 ## Chart v1.5.0 (2026-09-24) [minor]
 
 • Merge pull request #1534 from francisdouglas-ux/feat/epics-1521-1522-1523-1524

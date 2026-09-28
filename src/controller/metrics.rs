@@ -220,6 +220,42 @@ pub struct HorizonMigrationLabels {
     pub status: String, // "success" or "failed"
 }
 
+/// Labels identifying one watched Stellar asset.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct AssetLabels {
+    pub namespace: String,
+    pub monitor: String,
+    pub network: String,
+    pub asset_code: String,
+    pub issuer: String,
+    pub contract_id: String,
+}
+
+/// Current asset supply in stroops (1 asset unit = 10^7 stroops).
+pub static ASSET_SUPPLY_STROOPS: Lazy<Family<AssetLabels, Gauge<i64, AtomicI64>>> =
+    Lazy::new(Family::default);
+
+/// Current number of accounts holding the watched asset.
+pub static ASSET_HOLDERS: Lazy<Family<AssetLabels, Gauge<i64, AtomicI64>>> =
+    Lazy::new(Family::default);
+
+/// Current asset liquidity in stroops.
+pub static ASSET_LIQUIDITY_STROOPS: Lazy<Family<AssetLabels, Gauge<i64, AtomicI64>>> =
+    Lazy::new(Family::default);
+
+/// Signed supply change percentage observed in the most recently processed ledger.
+pub static ASSET_SUPPLY_CHANGE_PERCENT: Lazy<Family<AssetLabels, Gauge<f64, AtomicU64>>> =
+    Lazy::new(Family::default);
+
+/// Number of large supply changes observed for a watched asset.
+pub static ASSET_LARGE_SUPPLY_CHANGES_TOTAL: Lazy<
+    Family<AssetLabels, Counter<u64, AtomicU64>>,
+> = Lazy::new(Family::default);
+
+/// Number of clawback ledger changes observed for the watched asset.
+pub static ASSET_CLAWBACK_EVENTS_TOTAL: Lazy<Family<AssetLabels, Counter<u64, AtomicU64>>> =
+    Lazy::new(Family::default);
+
 /// Histogram tracking reconcile duration (seconds)
 pub static RECONCILE_DURATION_SECONDS: Lazy<Family<ReconcileLabels, Histogram>> = Lazy::new(|| {
     fn reconcile_histogram() -> Histogram {
@@ -386,6 +422,41 @@ pub static TRAFFIC_SYSTEM_LOAD_PERCENT: Lazy<Family<TrafficNodeLabels, Gauge<i64
 /// Gauge tracking circuit breaker state (0=closed, 1=open, 2=half-open).
 pub static TRAFFIC_CIRCUIT_BREAKER_STATE: Lazy<Family<TrafficNodeLabels, Gauge<i64, AtomicI64>>> =
     Lazy::new(Family::default);
+
+/// Labels for control-plane degradation metrics (#1494).
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct ControlPlaneComponentLabels {
+    pub component: String,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct DegradationTransitionLabels {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct SuppressedActionLabels {
+    pub action: String,
+}
+
+/// Current degradation level (0=Normal, 1=Reduced, 2=Degraded, 3=Frozen).
+pub static CONTROL_PLANE_DEGRADATION_LEVEL: Lazy<Gauge<i64, AtomicI64>> = Lazy::new(Gauge::default);
+
+/// Per-component state (1=healthy, 0=unhealthy, -1=unknown).
+pub static CONTROL_PLANE_COMPONENT_STATE: Lazy<
+    Family<ControlPlaneComponentLabels, Gauge<i64, AtomicI64>>,
+> = Lazy::new(Family::default);
+
+/// Degradation level transitions.
+pub static CONTROL_PLANE_DEGRADATION_TRANSITIONS: Lazy<
+    Family<DegradationTransitionLabels, Counter<u64, AtomicU64>>,
+> = Lazy::new(Family::default);
+
+/// Operator actions withheld by the degradation gate.
+pub static CONTROL_PLANE_SUPPRESSED_ACTIONS: Lazy<
+    Family<SuppressedActionLabels, Counter<u64, AtomicU64>>,
+> = Lazy::new(Family::default);
 
 /// Global metrics registry
 pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
@@ -639,6 +710,37 @@ pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
     );
 
     registry.register(
+        "stellar_asset_supply_stroops",
+        "Current watched asset supply in stroops",
+        ASSET_SUPPLY_STROOPS.clone(),
+    );
+    registry.register(
+        "stellar_asset_holders",
+        "Current number of accounts holding a watched asset",
+        ASSET_HOLDERS.clone(),
+    );
+    registry.register(
+        "stellar_asset_liquidity_stroops",
+        "Current watched asset liquidity in stroops",
+        ASSET_LIQUIDITY_STROOPS.clone(),
+    );
+    registry.register(
+        "stellar_asset_supply_change_percent",
+        "Signed supply change percentage observed in the latest ledger",
+        ASSET_SUPPLY_CHANGE_PERCENT.clone(),
+    );
+    registry.register(
+        "stellar_asset_large_supply_changes_total",
+        "Number of supply changes above the monitor's configured threshold",
+        ASSET_LARGE_SUPPLY_CHANGES_TOTAL.clone(),
+    );
+    registry.register(
+        "stellar_asset_clawback_events_total",
+        "Total observed clawback ledger changes for watched assets",
+        ASSET_CLAWBACK_EVENTS_TOTAL.clone(),
+    );
+
+    registry.register(
         "stellar_traffic_requests_total",
         "Total traffic shaping decisions by priority and decision",
         TRAFFIC_REQUESTS_TOTAL.clone(),
@@ -757,6 +859,27 @@ pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
         "stellar_observability_baseline_samples",
         "Number of samples in the baseline for each metric",
         OBSERVABILITY_BASELINE_SAMPLES.clone(),
+    );
+
+    registry.register(
+        "stellar_control_plane_degradation_level",
+        "Control-plane degradation level (0=Normal, 1=Reduced, 2=Degraded, 3=Frozen)",
+        CONTROL_PLANE_DEGRADATION_LEVEL.clone(),
+    );
+    registry.register(
+        "stellar_control_plane_component_state",
+        "Control-plane component state (1=healthy, 0=unhealthy, -1=unknown)",
+        CONTROL_PLANE_COMPONENT_STATE.clone(),
+    );
+    registry.register(
+        "stellar_control_plane_degradation_transitions",
+        "Control-plane degradation level transitions",
+        CONTROL_PLANE_DEGRADATION_TRANSITIONS.clone(),
+    );
+    registry.register(
+        "stellar_control_plane_suppressed_actions",
+        "Operator actions withheld because of control-plane degradation",
+        CONTROL_PLANE_SUPPRESSED_ACTIONS.clone(),
     );
 
     registry
@@ -2079,4 +2202,40 @@ mod tests {
         inc_operator_reconcile_error("stellarnode", "unknown");
         // Function should not panic with various error kinds
     }
+}
+
+/// Record the current control-plane degradation level.
+pub fn set_control_plane_degradation_level(level: i64) {
+    CONTROL_PLANE_DEGRADATION_LEVEL.set(level);
+}
+
+/// Record a control-plane component's state (1=healthy, 0=unhealthy, -1=unknown).
+pub fn set_control_plane_component_state(component: &str, state: i64) {
+    let labels = ControlPlaneComponentLabels {
+        component: component.to_string(),
+    };
+    CONTROL_PLANE_COMPONENT_STATE
+        .get_or_create(&labels)
+        .set(state);
+}
+
+/// Count a degradation level transition.
+pub fn inc_control_plane_degradation_transition(from: &str, to: &str) {
+    let labels = DegradationTransitionLabels {
+        from: from.to_string(),
+        to: to.to_string(),
+    };
+    CONTROL_PLANE_DEGRADATION_TRANSITIONS
+        .get_or_create(&labels)
+        .inc();
+}
+
+/// Count an operator action withheld by the degradation gate.
+pub fn inc_control_plane_suppressed_action(action: &str) {
+    let labels = SuppressedActionLabels {
+        action: action.to_string(),
+    };
+    CONTROL_PLANE_SUPPRESSED_ACTIONS
+        .get_or_create(&labels)
+        .inc();
 }

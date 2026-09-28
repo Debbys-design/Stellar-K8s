@@ -84,6 +84,7 @@ use super::maintenance;
 use super::metrics;
 use super::mtls;
 use super::oci_snapshot;
+use super::ledger_migration;
 use super::operator_config::{hardcoded_defaults, OperatorConfig};
 use super::peer_discovery;
 use super::phases::{PhaseMachine, ReconcilePhase};
@@ -512,6 +513,14 @@ pub async fn run_controller(state: Arc<ControllerState>) -> Result<()> {
         }
     });
 
+    // Start Control-Plane Health Monitor (graceful degradation, #1494)
+    let cph_monitor = crate::degradation::monitor::ControlPlaneHealthMonitor::new(
+        client.clone(),
+        crate::degradation::DegradationGate::global().clone(),
+        state.is_leader.clone(),
+    );
+    tokio::spawn(cph_monitor.run());
+
     // Start Audit Worker if enabled
     if state.operator_config.audit.enabled {
         let audit_worker = AuditWorker::new(client.clone(), state.audit_recorder.clone());
@@ -822,6 +831,20 @@ fn reconcile(
                 machine.succeed("not the leader; pass skipped");
             }
             return Ok(Action::requeue(Duration::from_secs(5)));
+        }
+
+        // While etcd is unavailable the operator makes no writes; running pods
+        // keep serving on their last applied configuration (#1494).
+        let gate = crate::degradation::DegradationGate::global();
+        if let Err(level) = gate.check(crate::degradation::OperatorAction::Write) {
+            info!(
+                "Control plane is {:?}; deferring reconciliation of {}/{}",
+                level, namespace, node_name
+            );
+            if let Ok(mut machine) = phases.lock() {
+                machine.succeed("control plane frozen; pass deferred");
+            }
+            return Ok(Action::requeue(Duration::from_secs(30)));
         }
 
         let res = {
@@ -1149,6 +1172,53 @@ pub(crate) fn apply_stellar_node(
                 }
             )
             .await?;
+
+            if node
+                .metadata
+                .annotations
+                .as_ref()
+                .and_then(|annotations| annotations.get("stellar.org/request-ledger-export"))
+                .is_some_and(|value| value == "true" || value == "1")
+            {
+                if let Some(export) = node
+                    .spec
+                    .storage
+                    .snapshot_ref
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.export.as_ref())
+                {
+                    let ledger_seq = node
+                        .status
+                        .as_ref()
+                        .and_then(|status| status.ledger_sequence)
+                        .unwrap_or(0);
+                    if ledger_seq > 0
+                        && ledger_migration::ensure_export_job(
+                            &client,
+                            &node,
+                            export,
+                            ledger_seq,
+                        )
+                        .await?
+                        .is_some()
+                    {
+                        let api: Api<StellarNode> = Api::namespaced(client.clone(), &namespace);
+                        api.patch(
+                            &name,
+                            &PatchParams::default(),
+                            &Patch::Merge(serde_json::json!({
+                                "metadata": { "annotations": { "stellar.org/request-ledger-export": null } }
+                            })),
+                        )
+                        .await?;
+                    }
+                } else {
+                    warn!(
+                        "Ledger export requested for {}/{} without storage.snapshotRef.export",
+                        namespace, name
+                    );
+                }
+            }
 
             return Ok(Action::requeue(Duration::from_secs(60)));
         }
@@ -2422,7 +2492,21 @@ pub(crate) fn apply_stellar_node(
         // 9. Auto-remediation check
         if health_result.healthy && !node.spec.suspended {
             let stale_check = remediation::check_stale_node(&node, health_result.ledger_sequence);
-            if stale_check.is_stale && remediation::can_remediate(&node) {
+            let degradation = if stale_check.is_stale {
+                crate::degradation::DegradationGate::global()
+                    .check(crate::degradation::OperatorAction::Disruptive)
+                    .err()
+            } else {
+                None
+            };
+            if let Some(level) = degradation {
+                // Stale signals may stem from the degraded control plane; never
+                // restart serving pods on them (#1494).
+                info!(
+                    "Control plane is {:?}; withholding stale-ledger restart of {}/{}",
+                    level, namespace, name
+                );
+            } else if stale_check.is_stale && remediation::can_remediate(&node) {
                 if stale_check.recommended_action == remediation::RemediationLevel::Restart {
                     apply_or_emit!(
                         &ctx,

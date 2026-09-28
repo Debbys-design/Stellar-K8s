@@ -253,6 +253,24 @@ pub struct SnapshotRef {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup_url: Option<String>,
 
+    /// Expected SHA-256 hex digest of the downloaded archive. Restore fails before extraction
+    /// when the artifact does not match this digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+
+    /// Expected source ledger sequence, checked against the export manifest after extraction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_ledger_sequence: Option<u64>,
+
+    /// Expected source network name, checked against the export manifest after extraction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_network: Option<String>,
+
+    /// Configure object-storage export on the source node. Trigger with the
+    /// `stellar.org/request-ledger-export=true` annotation while the node is suspended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export: Option<LedgerSnapshotExportConfig>,
+
     /// Name of a Kubernetes Secret containing credentials for the backup URL.
     ///
     /// For S3 URLs the secret must have keys `AWS_ACCESS_KEY_ID` and
@@ -266,6 +284,17 @@ pub struct SnapshotRef {
     /// Defaults to `amazon/aws-cli:latest` for S3 URLs and `alpine:3` for HTTPS.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restore_image: Option<String>,
+}
+
+/// Object-storage destination for a ledger state export.
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LedgerSnapshotExportConfig {
+    /// S3 URI prefix, such as `s3://bucket/migrations/validator-a`.
+    pub destination: String,
+
+    /// Secret with AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and optional AWS_DEFAULT_REGION.
+    pub credentials_secret_ref: String,
 }
 
 /// Storage configuration for persistent data
