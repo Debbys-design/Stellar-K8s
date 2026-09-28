@@ -1,6 +1,12 @@
 {
   "schemas": [
     {
+      "file": "MaintenancePlan-stellar.org-v1alpha1.json",
+      "source": "config/crd/maintenanceplan-crd.yaml",
+      "kind": "MaintenancePlan",
+      "apiVersion": "stellar.org/v1alpha1"
+    },
+    {
       "file": "StellarAIOps-stellar.org-v1alpha1.json",
       "source": "config/crd/stellaraiops-crd.yaml",
       "kind": "StellarAIOps",

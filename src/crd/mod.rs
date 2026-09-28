@@ -85,6 +85,7 @@ pub mod stellar_observability;
 pub mod stellar_performance;
 pub mod stellar_topology;
 pub mod stellar_upgrade;
+pub mod maintenance_plan;
 pub mod tenant;
 pub mod traffic_policy;
 pub mod traffic_shift_plan;
@@ -199,6 +200,11 @@ pub use stellar_topology::{
 pub use stellar_upgrade::{
     CanaryStrategy as UpgradeCanaryStrategy, HealthValidation, RollbackPolicy, StellarUpgrade,
     StellarUpgradeSpec, StellarUpgradeStatus, UpgradePhase,
+};
+pub use maintenance_plan::{
+    AbortPolicy, DrainConfig, MaintenanceIntent, MaintenancePhase, MaintenancePlan,
+    MaintenancePlanSpec, MaintenancePlanStatus, MaintenanceTarget, PdbConfig, PrewarmConfig,
+    SloVerification, StallRecovery,
 };
 pub use traffic_policy::{
     AdaptiveRateLimitPolicy, CircuitBreakerPolicy, LeakyBucketPolicy, PriorityRule, QosClassPolicy,
