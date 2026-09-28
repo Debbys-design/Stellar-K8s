@@ -27,6 +27,8 @@
 //! - `stellar_node_active_connections` (gauge): active peer connections labeled by namespace/name/node_type/network/hardware_generation.
 //! - `stellar_horizon_request_error_ratio` (gauge): ratio (0.0-1.0) of Horizon API requests returning 4xx/5xx, labeled by namespace/name/node_type/network/hardware_generation.
 //! - `stellar_horizon_db_query_duration_seconds` (gauge): average Horizon database query duration in seconds, labeled by namespace/name/node_type/network/hardware_generation.
+//! - `stellar_job_orphans_reclaimed_total` (counter): reclaimed Job/Pod artifacts labeled by namespace/kind/orphan class.
+//! - `stellar_job_orphan_pods_outstanding` (gauge): orphaned Job pods still pending after a sweep, labeled by namespace.
 
 use std::sync::atomic::{AtomicI64, AtomicU64};
 
@@ -638,6 +640,18 @@ pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
         "stellar_operator_ready",
         "1 if the operator is ready (K8s watch healthy and first reconcile complete), 0 otherwise",
         OPERATOR_READY_STATUS.clone(),
+    );
+
+    // ── Job / CronJob orphan reclamation metrics ─────────────────────────
+    registry.register(
+        "stellar_job_orphans_reclaimed_total",
+        "Total number of orphaned Job/Pod artifacts reclaimed, by namespace, kind and orphan class",
+        JOB_ORPHANS_RECLAIMED_TOTAL.clone(),
+    );
+    registry.register(
+        "stellar_job_orphan_pods_outstanding",
+        "Number of orphaned Job pods still awaiting reclamation after a sweep",
+        JOB_ORPHAN_PODS_OUTSTANDING.clone(),
     );
 
     // ── Observability Pipeline metrics ────────────────────────────────────
@@ -1461,6 +1475,52 @@ pub static OPERATOR_UPTIME_SECONDS: Lazy<Counter<u64, AtomicU64>> = Lazy::new(Co
 /// Gauge tracking whether the operator is ready (1 = ready, 0 = not ready).
 pub static OPERATOR_READY_STATUS: Lazy<Gauge<i64, AtomicI64>> = Lazy::new(Gauge::default);
 
+// ── Job / CronJob Orphan Reclamation Metrics ─────────────────────────────
+
+/// Labels for job/pod orphan reclamation metrics
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct JobOrphanLabels {
+    pub namespace: String,
+    /// `Job` or `Pod`.
+    pub kind: String,
+    /// Stable orphan class, see `controller::job_orphan_reconciler::OrphanClass`.
+    pub class: String,
+}
+
+/// Labels for per-namespace orphan gauges
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct JobOrphanGaugeLabels {
+    pub namespace: String,
+}
+
+/// Counter of Job/CronJob artifacts reclaimed by the orphan reconciler
+pub static JOB_ORPHANS_RECLAIMED_TOTAL: Lazy<Family<JobOrphanLabels, Counter<u64, AtomicU64>>> =
+    Lazy::new(Family::default);
+
+/// Gauge of orphan Job pods still awaiting reclamation at the end of a sweep
+pub static JOB_ORPHAN_PODS_OUTSTANDING: Lazy<Family<JobOrphanGaugeLabels, Gauge<i64, AtomicI64>>> =
+    Lazy::new(Family::default);
+
+/// Record `count` reclaimed Job/Pod artifacts for a namespace and orphan class.
+pub fn inc_job_orphan_reclaimed(namespace: &str, kind: &str, class: &str, count: u64) {
+    JOB_ORPHANS_RECLAIMED_TOTAL
+        .get_or_create(&JobOrphanLabels {
+            namespace: namespace.to_string(),
+            kind: kind.to_string(),
+            class: class.to_string(),
+        })
+        .inc_by(count);
+}
+
+/// Set the number of orphan Job pods still pending after a sweep.
+pub fn set_job_orphans_outstanding(namespace: &str, count: i64) {
+    JOB_ORPHAN_PODS_OUTSTANDING
+        .get_or_create(&JobOrphanGaugeLabels {
+            namespace: namespace.to_string(),
+        })
+        .set(count);
+}
+
 // ── Observability Pipeline Metrics ────────────────────────────────────────
 
 /// Labels for observability pipeline event source metrics
@@ -1943,6 +2003,35 @@ mod tests {
         assert_eq!(labels.name, "soroban-prod");
         assert_eq!(labels.network, "mainnet");
         assert!(labels.contract_id.starts_with("CDLZFC"));
+    }
+
+    #[test]
+    fn test_job_orphan_reclamation_metrics() {
+        inc_job_orphan_reclaimed("stellar", "Job", "deleted_cron_job", 2);
+        inc_job_orphan_reclaimed("stellar", "Job", "deleted_cron_job", 1);
+        inc_job_orphan_reclaimed("stellar", "Pod", "completed_pod", 4);
+
+        let counter = JOB_ORPHANS_RECLAIMED_TOTAL.get_or_create(&JobOrphanLabels {
+            namespace: "stellar".to_string(),
+            kind: "Job".to_string(),
+            class: "deleted_cron_job".to_string(),
+        });
+        assert_eq!(counter.get(), 3);
+        // A different namespace is tracked independently.
+        inc_job_orphan_reclaimed("other", "Job", "deleted_cron_job", 1);
+        let other = JOB_ORPHANS_RECLAIMED_TOTAL.get_or_create(&JobOrphanLabels {
+            namespace: "other".to_string(),
+            kind: "Job".to_string(),
+            class: "deleted_cron_job".to_string(),
+        });
+        assert_eq!(other.get(), 1);
+
+        set_job_orphans_outstanding("stellar", 3);
+        set_job_orphans_outstanding("stellar", 0);
+        let gauge = JOB_ORPHAN_PODS_OUTSTANDING.get_or_create(&JobOrphanGaugeLabels {
+            namespace: "stellar".to_string(),
+        });
+        assert_eq!(gauge.get(), 0);
     }
 
     #[test]

@@ -64,6 +64,7 @@ mod blue_green_schema_test;
 mod cnpg;
 pub mod dr_policy;
 pub mod federation;
+pub mod job_retention;
 pub mod multi_region;
 pub mod read_replica;
 pub mod schema_utils;
@@ -107,6 +108,9 @@ pub use dr_policy::{
 pub use federation::{
     ClusterRegistry, ClusterRegistrySpec, ConflictResolutionStrategy, FederatedCluster,
     FederatedPlacement, FederatedStellarNode, FederatedStellarNodeSpec,
+};
+pub use job_retention::{
+    JobRetentionPolicy, JobRetentionPolicySpec, JobRetentionPolicyStatus, ReclaimedByClass,
 };
 pub use multi_region::{
     ClusterConfig, ClusterHealthStatus, FailoverPolicy, MultiRegionConfig, MultiRegionHealthCheck,
