@@ -679,3 +679,6 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes and releases.
 
 <!-- handsoff-issue-1627 -->
 - #1627: [EPIC] Add Makefile Targets for CI-Only Helper Scripts
+
+<!-- handsoff-issue-1628 -->
+- #1628: [EPIC] Add bats Coverage for repo-health Script
